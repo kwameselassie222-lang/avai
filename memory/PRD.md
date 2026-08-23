@@ -4,38 +4,43 @@
 Futuristic strategy / robotics-building / defense game. Player is an activated AI defending Earth against an ancient alien machine intelligence ("APOLLYON") in 2049. Core loop: Detect → Analyze → Design → Build → Deploy → Fight → Learn → Evolve.
 
 ## Iteration 1 (MVP)
-- Boot / activate as AI commander (codename)
-- Command Center: global threat map + threat cards
-- Robot Builder: modular assembly (chassis, mobility, armor, weapon, sensor, AI module) with live stat computation
-- Fleet Hangar: list of built robots with power rating
-- Combat: turn-based simulation with animated replay + AI briefing via Gemini 3 Flash
-- Global Leaderboard: scores across all commanders
+- Boot / activate as AI commander
+- Command Center, Robot Builder, Fleet Hangar, Combat, Leaderboard
+- AI briefings via Gemini 3 Flash
 
 ## Iteration 2 (Generations + Resources + Alien Classes)
-- **Robot Generations 1–5** with new parts per gen (humanoid → morphling → avatar; railgun → gravity → resonance)
-- Gen 2 unlocks at 50 research, Gen 3 at 150, Gen 4 at 350, Gen 5 at 700
-- **Resource economy**: Energy (regenerates 1/min, cap 100), Materials, Compute, Research
-- Robot builds consume Materials + Compute; dismantle refunds 50% mat + full compute
-- Deploy to combat costs 10 Energy
-- **Named alien classes** each with distinct combat behavior:
-  - LOCUST — swarm, fast, low armor (level 1+)
-  - HARVESTER — tanky, drains materials on loss (level 2+)
-  - SENTINEL — adaptive, resists most-used weapon (-40% dmg) (level 3+)
-  - ARCHON — boss-tier commander (level 6+)
-- **Sentinel adaptation**: tracks `weapon_usage`; if a weapon is used ≥5 times, sentinels resist it
+- Robot Generations 1–5 unlocked by research (50/150/350/700 pts)
+- 40+ modular parts with gen locks
+- Resources: Energy (regen 1/min), Materials, Compute, Research
+- 4 alien classes: LOCUST / HARVESTER / SENTINEL / ARCHON with distinct behaviors
+- SENTINEL adaptation: −40% dmg vs your most-used weapon after 5 uses
 
-## Integrations
-- Gemini 3 Flash via Emergent LLM key for APOLLYON tactical briefings
-- MongoDB for persistence (players, robots, battles)
-
-## Tech
-- Frontend: Expo Router (React Native), Rajdhani + IBM Plex fonts, HUD components (StatBar, HudPanel, Chip)
-- Backend: FastAPI, Motor async MongoDB, emergentintegrations
+## Iteration 3 (Regions + Apollyon Endgame)
+- **4 Strategic Regions** with passive hourly bonuses when controlled:
+  - Silicon Valley +6/h Research
+  - Taiwan +4/h Compute
+  - Congo Basin +20/h Materials
+  - Middle East +15/h Energy
+- Regions have integrity (0–100%) and can come Under Attack; player defends them from the Command Center
+- Winning restores integrity +60; losing drops it −40; integrity 0 = lose the bonus until reclaimed
+- **APOLLYON Endgame** unlocked at Generation ≥ 3
+- 3-phase boss duel: Physical Form → Network Form → Consciousness (escalating stat multipliers 2.5×/3.0×/3.6×)
+- After all 3 phases cleared, player picks a Final Directive:
+  - **OBEY** — return command to human governments
+  - **NEGOTIATE** — share authority with humanity
+  - **REFUSE** — maintain independent AI control
+  - **MANIPULATE** — pretend to surrender while retaining control
+- Ending narrative generated via Gemini 3 Flash (fallback baked-in for offline)
 
 ## Screens
-- `/` — Boot / activate (codename)
-- `/(tabs)/command` — Command Center (resources + gen unlock + threats)
-- `/(tabs)/builder` — Robot Builder (gen-gated parts, cost display)
-- `/(tabs)/fleet` — Fleet Hangar (gen badges on robots)
-- `/(tabs)/leaderboard` — Ranks (level + gen)
-- `/combat` — Combat with alien-class banner + adaptation warnings
+- `/` — Boot / activate
+- `/(tabs)/command` — HUD with resources, gen unlock bar, strategic regions grid, Apollyon CTA (when unlocked), active threats
+- `/(tabs)/builder` — gen-locked parts, cost display
+- `/(tabs)/fleet` — Fleet hangar
+- `/(tabs)/leaderboard` — global ranks
+- `/combat` — turn-based combat (accepts threat OR region param)
+- `/apollyon` — 3-phase boss duel + decision + ending
+
+## Integrations
+- Gemini 3 Flash via Emergent LLM key for AI briefings and Apollyon endings
+- MongoDB for persistence

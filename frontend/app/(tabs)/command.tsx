@@ -1,19 +1,12 @@
 import React, { useCallback, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  ActivityIndicator,
-} from "react-native";
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, Pressable } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
-import { api, storage, Player, Threat, ALIEN_CLASS_META, GEN_UNLOCK_RESEARCH } from "@/src/api";
+import { api, storage, Player, Threat, Region, ALIEN_CLASS_META, GEN_UNLOCK_RESEARCH } from "@/src/api";
 import { HudPanel, TerminalHeader, HudButton } from "@/src/components/hud";
 
 const MAP_URL =
@@ -133,6 +126,49 @@ export default function CommandCenter() {
           </View>
         </View>
 
+        {/* Regions */}
+        <Text style={styles.sectionTitle} testID="regions-title">
+          ▮ STRATEGIC REGIONS
+        </Text>
+        <View style={styles.regionsGrid}>
+          {(player.regions || []).map((r) => (
+            <RegionCard
+              key={r.id}
+              region={r}
+              onPress={() =>
+                router.push({
+                  pathname: "/combat",
+                  params: { region: JSON.stringify(r) },
+                })
+              }
+            />
+          ))}
+        </View>
+
+        {/* Apollyon CTA */}
+        {player.apollyon?.unlocked && !player.apollyon?.decision && (
+          <Pressable
+            testID="apollyon-cta"
+            onPress={() => router.push("/apollyon")}
+            style={styles.apollyonCta}
+          >
+            <View style={styles.apollyonInner}>
+              <MaterialCommunityIcons name="skull-scan" size={28} color={colors.brandSecondary} />
+              <View style={{ flex: 1, marginLeft: spacing.md }}>
+                <Text style={styles.apollyonTitle}>
+                  {player.apollyon?.completed ? "APOLLYON // AWAITING DECISION" : "APOLLYON // ENGAGE ENDGAME"}
+                </Text>
+                <Text style={styles.apollyonSub}>
+                  {player.apollyon?.completed
+                    ? "The alien intelligence has fallen. Choose humanity's fate."
+                    : `PHASE ${(player.apollyon?.phase ?? 0) + 1} / 3 — biomechanical avatar detected`}
+                </Text>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={22} color={colors.brandSecondary} />
+            </View>
+          </Pressable>
+        )}
+
         <Text style={styles.sectionTitle} testID="threats-title">
           ▮ ACTIVE THREATS
         </Text>
@@ -214,6 +250,65 @@ function ResourceCell({
         {max ? <Text style={styles.resMax}>/{max}</Text> : null}
       </Text>
     </View>
+  );
+}
+
+const RES_META: Record<Region["resource"], { icon: string; color: string; short: string }> = {
+  research:  { icon: "atom",           color: colors.brandSecondary, short: "RSRCH" },
+  compute:   { icon: "chip",           color: colors.success,        short: "COMP" },
+  materials: { icon: "cube-outline",   color: colors.brandPrimary,   short: "MAT" },
+  energy:    { icon: "lightning-bolt", color: colors.warning,        short: "PWR" },
+};
+
+function RegionCard({ region, onPress }: { region: Region; onPress: () => void }) {
+  const meta = RES_META[region.resource];
+  const stateLabel = !region.controlled
+    ? "LOST"
+    : region.under_attack
+    ? "UNDER ATTACK"
+    : "HELD";
+  const stateColor = !region.controlled
+    ? colors.brandSecondary
+    : region.under_attack
+    ? colors.warning
+    : colors.success;
+  return (
+    <Pressable
+      testID={`region-${region.id}`}
+      onPress={onPress}
+      style={[
+        styles.regionCard,
+        {
+          borderColor:
+            !region.controlled
+              ? colors.brandSecondary
+              : region.under_attack
+              ? colors.warning
+              : colors.border,
+        },
+      ]}
+    >
+      <View style={styles.regionTopRow}>
+        <MaterialCommunityIcons name={meta.icon as any} size={16} color={meta.color} />
+        <Text style={[styles.regionState, { color: stateColor }]}>{stateLabel}</Text>
+      </View>
+      <Text style={styles.regionName}>{region.name.toUpperCase()}</Text>
+      <Text style={[styles.regionBonus, { color: meta.color }]}>
+        +{region.per_hour}/h {meta.short}
+      </Text>
+      <View style={styles.regionBar}>
+        <View
+          style={[
+            styles.regionBarFill,
+            {
+              width: `${region.integrity}%`,
+              backgroundColor: stateColor,
+            },
+          ]}
+        />
+      </View>
+      <Text style={styles.regionIntegrity}>{region.integrity}% INTEGRITY</Text>
+    </Pressable>
   );
 }
 
@@ -396,5 +491,80 @@ const styles = StyleSheet.create({
     color: colors.warning,
     fontSize: fontSize.xs,
     letterSpacing: 1,
+  },
+  regionsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  regionCard: {
+    width: "48%",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  regionTopRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  regionState: {
+    fontFamily: fonts.displayBold,
+    fontSize: 9,
+    letterSpacing: 1,
+  },
+  regionName: {
+    fontFamily: fonts.displayBold,
+    color: colors.onSurface,
+    fontSize: fontSize.sm,
+    letterSpacing: 1.2,
+  },
+  regionBonus: {
+    fontFamily: fonts.displayBold,
+    fontSize: fontSize.xs,
+    letterSpacing: 1,
+    marginTop: 2,
+    marginBottom: spacing.xs,
+  },
+  regionBar: {
+    height: 3,
+    backgroundColor: colors.surfaceTertiary,
+    overflow: "hidden",
+  },
+  regionBarFill: { height: 3 },
+  regionIntegrity: {
+    fontFamily: fonts.display,
+    color: colors.onSurfaceTertiary,
+    fontSize: 9,
+    marginTop: 3,
+    letterSpacing: 1,
+  },
+  apollyonCta: {
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255,51,102,0.08)",
+    marginBottom: spacing.lg,
+  },
+  apollyonInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.md,
+  },
+  apollyonTitle: {
+    fontFamily: fonts.displayBold,
+    color: colors.brandSecondary,
+    fontSize: fontSize.base,
+    letterSpacing: 1.5,
+  },
+  apollyonSub: {
+    fontFamily: fonts.body,
+    color: colors.onSurfaceSecondary,
+    fontSize: fontSize.xs,
+    marginTop: 2,
+    letterSpacing: 0.5,
   },
 });

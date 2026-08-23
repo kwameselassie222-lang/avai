@@ -13,7 +13,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
-import { api, storage, Robot, Threat, BattleResult, ALIEN_CLASS_META } from "@/src/api";
+import { api, storage, Robot, Threat, BattleResult, Region, ALIEN_CLASS_META } from "@/src/api";
 import { HudPanel, HudButton, StatPill, TerminalHeader } from "@/src/components/hud";
 
 const ARENA_BG =
@@ -22,9 +22,30 @@ const ARENA_BG =
 type Phase = "select" | "briefing" | "combat" | "result";
 
 export default function Combat() {
-  const params = useLocalSearchParams<{ threat?: string }>();
+  const params = useLocalSearchParams<{ threat?: string; region?: string }>();
   const router = useRouter();
-  const threat: Threat | null = params.threat ? JSON.parse(params.threat as string) : null;
+  const parsedRegion: Region | null = params.region ? JSON.parse(params.region as string) : null;
+  const threat: Threat | null = params.threat
+    ? JSON.parse(params.threat as string)
+    : parsedRegion
+    ? {
+        id: `region-${parsedRegion.id}`,
+        name: `${parsedRegion.name} Defense`,
+        location: parsedRegion.location,
+        alien_class: "sentinel",
+        threat_level: 5,
+        hp: 60,
+        attack: 15,
+        defense: 8,
+        speed: 8,
+        weakness: "emp",
+        reward_xp: 90,
+        reward_credits: 150,
+        reward_materials: 55,
+        reward_research: 12,
+        description: `Regional Incursion in ${parsedRegion.name} — Apollyon strike team destabilizing our ${parsedRegion.resource} pipeline.`,
+      }
+    : null;
 
   const [phase, setPhase] = useState<Phase>("select");
   const [robots, setRobots] = useState<Robot[]>([]);
@@ -70,12 +91,21 @@ export default function Combat() {
     setPhase("combat");
     setReplayIdx(0);
     try {
-      const r = await api.battle({
-        player_id: pid,
-        robot_id: chosen.id,
-        threat,
-      });
-      setResult(r);
+      if (parsedRegion) {
+        const r = await api.attackRegion({
+          player_id: pid,
+          region_id: parsedRegion.id,
+          robot_id: chosen.id,
+        });
+        setResult(r.result);
+      } else {
+        const r = await api.battle({
+          player_id: pid,
+          robot_id: chosen.id,
+          threat,
+        });
+        setResult(r);
+      }
     } catch (e) {
       console.warn("battle failed", e);
       router.back();

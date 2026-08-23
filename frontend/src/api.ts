@@ -13,6 +13,27 @@ export type Resources = {
   research: number;
 };
 
+export type Region = {
+  id: string;
+  name: string;
+  resource: "energy" | "materials" | "compute" | "research";
+  per_hour: number;
+  location: string;
+  integrity: number;
+  controlled: boolean;
+  under_attack: boolean;
+};
+
+export type ApollyonState = {
+  unlocked: boolean;
+  phase: number;
+  completed: boolean;
+  decision: string | null;
+  ending: string | null;
+  phases_total?: number;
+  current_phase_info?: { name: string; narrative: string } | null;
+};
+
 export type Player = {
   id: string;
   codename: string;
@@ -25,6 +46,8 @@ export type Player = {
   generation: number;
   resources: Resources;
   weapon_usage: Record<string, number>;
+  regions: Region[];
+  apollyon: ApollyonState;
 };
 
 export type Robot = {
@@ -187,6 +210,49 @@ export const api = {
         alien_class: threat.alien_class,
         context: threat.description,
       }),
+    });
+    return j(res);
+  },
+  async getRegions(playerId: string): Promise<Region[]> {
+    return j(await fetch(`${API}/regions/${playerId}`));
+  },
+  async attackRegion(payload: {
+    player_id: string;
+    region_id: string;
+    robot_id: string;
+  }): Promise<{ result: BattleResult; region: Region }> {
+    const res = await fetch(`${API}/regions/attack`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async apollyonStatus(playerId: string): Promise<ApollyonState> {
+    return j(await fetch(`${API}/apollyon/status/${playerId}`));
+  },
+  async apollyonBattle(payload: { player_id: string; robot_id: string }): Promise<{
+    result: BattleResult;
+    phase: number;
+    phases_total: number;
+    phase_narrative: string;
+    completed: boolean;
+  }> {
+    const res = await fetch(`${API}/apollyon/battle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async apollyonDecide(payload: { player_id: string; decision: string }): Promise<{
+    decision: string;
+    ending: string;
+  }> {
+    const res = await fetch(`${API}/apollyon/decide`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
     return j(res);
   },

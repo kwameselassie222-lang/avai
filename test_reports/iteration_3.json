@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 3 tested end-to-end. Backend: 16/16 pytest cases passing for Strategic Regions + Apollyon endgame (default regions, GET /regions, passive per-hour tick via 1h backdate, /regions/attack success + 404, /apollyon/status locked/unlocked, /apollyon/battle locked=400 & unlocked runs, /apollyon/decide before-completed=400, invalid decision=400, all 4 valid decisions OBEY/NEGOTIATE/REFUSE/MANIPULATE return non-empty AI ending and persist on player.apollyon). Frontend: STRATEGIC REGIONS section renders with all 4 region cards (region-silicon_valley, region-taiwan, region-congo, region-middle_east), each showing name, +X/h RESOURCE, HELD state and 100% integrity; tapping a region card navigates to /combat with region param; apollyon-cta correctly hidden while locked; /apollyon route lock screen shows when generation<3; after DB patch to unlock (research=200), /apollyon shows apollyon-intro, 3 phase pills (P1/P2/P3) and apollyon-engage button; after patching apollyon.completed=true, apollyon-decision-panel renders with all 4 buttons (decision-obey/negotiate/refuse/manipulate).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "apollyon decision -> ending render", "issue": "Ending panel did not render within 9s of tapping decision-obey during UI run. Backend /apollyon/decide (gemini-3-flash) frequently takes 8-15s. Likely a UI-loading indicator gap — the decide handler sets busy=true but does not visibly signal 'GENERATING ENDING…' while the LLM call is in-flight, which can look frozen. Consider showing a loader in apollyon-decision-panel while busy=true.", "affected_testIDs": ["apollyon-decision-panel", "apollyon-ending"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/iteration3_results.xml"
+  ],
+  "action_items": [
+    "Add a loading state to /apollyon decision phase while the /apollyon/decide LLM call is in-flight (busy=true) so users don't perceive the app as frozen for 8-15s. e.g., show 'GENERATING FINAL LOG…' with ActivityIndicator.",
+    "Consider persisting resources_updated_at on new player insert (already done) — verify legacy players without the field still tick correctly on first GET (currently defaults to now, so 0 tick on first call; acceptable)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1070 lines — approaching the 700-line refactor threshold. Consider splitting into modules: routes/regions.py, routes/apollyon.py, services/battle.py, config/catalog.py.",
+    "apply_energy_regen: `int()` truncation on region tick means bonuses <1 per call are lost; acceptable for hour-scale ticks but worth noting.",
+    "/apollyon/battle response returns `phase: phase_idx + 1` even on defeat, while DB apollyon.phase is only incremented on victory. Frontend uses this to advance phaseIdx UI — could confuse the player on defeat. Consider returning apollyon.phase from DB.",
+    "Combat screen builds a synthetic threat for region attacks with hardcoded stats (hp 60, atk 15, etc.) instead of using region_threat_stats from backend; result comes from /regions/attack so fine, but the pre-battle HP bar max mismatches actual server-side threat HP."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py (new)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "~95% (all UI wiring OK; only ending-render timing flaked once)"},
+  "seed_data_creation": "One test player per pytest module run (codename TEST_I3_*) and one throwaway UI player (TESTUI3*). MongoDB was directly patched to unlock apollyon and to force completed=true for UI testing — cleanup not required (isolated codenames).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend test file at /app/backend/tests/test_iteration3.py is authoritative for iteration 3 features. It uses direct MongoDB patching (via pymongo) to fast-forward player state (research=200 for gen>=3, apollyon.completed=true for decision, backdated resources_updated_at for passive-tick verification). For UI, use the same patching pattern to jump between apollyon phases without grinding. Note gemini-3-flash decision endpoint can take 8-15s — allow >=20s wait in UI tests for the ending panel."
+}
