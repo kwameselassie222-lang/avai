@@ -1,0 +1,188 @@
+{
+  "app_name": "ALIENS V A.I.",
+  "personality": "7 Dark-First Utility",
+  "personality_one_liner": "A high-contrast, military-tactical sci-fi HUD combining dark obsidian surfaces with cybernetic cyan and hostile magenta accents.",
+  "color": {
+    "surface": "#090A0D",
+    "onSurface": "#E2E8F0",
+    "surfaceSecondary": "#13151A",
+    "onSurfaceSecondary": "#A0AABF",
+    "surfaceTertiary": "#1A1D24",
+    "onSurfaceTertiary": "#8A96A8",
+    "surfaceInverse": "#E2E8F0",
+    "onSurfaceInverse": "#090A0D",
+    "brand": "#00E5FF",
+    "brandPrimary": "#00E5FF",
+    "onBrandPrimary": "#001F24",
+    "brandSecondary": "#FF3366",
+    "onBrandSecondary": "#330011",
+    "brandTertiary": "#00E5FF1A",
+    "onBrandTertiary": "#00E5FF",
+    "success": "#00FF66",
+    "onSuccess": "#003314",
+    "warning": "#FFB020",
+    "onWarning": "#332300",
+    "error": "#FF3366",
+    "onError": "#330011",
+    "border": "#252A34",
+    "borderStrong": "#00E5FF",
+    "divider": "#1A1D24"
+  },
+  "typography": {
+    "displayFontFamily": "Rajdhani",
+    "textFontFamily": "IBM Plex Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Handle spacing correctly dont have extra spaces where its not required, handle padding and margin corectly and subtle for buttons and components",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 0,
+    "md": 4,
+    "lg": 8,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "MaterialCommunityIcons",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Use solid dark surfaces with colored borders for a tactical terminal feel"
+    ],
+    "dont's": [
+      "No Apple-style blur or frosted glass; keep it sharp, military, and brutal"
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Splash/Boot",
+      "purpose": "Simulate AI system boot sequence and connection to global satellite.",
+      "states": {
+        "loading": "Terminal typing text 'INITIALIZING APOLLYON DEFENSE MATRIX...'",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Full screen terminal with brandPrimary scanlines. A centered logo/icon pulses as the 'boot' finishes, transitioning to Command Center."
+    },
+    {
+      "name": "Command Center",
+      "purpose": "Global map tracking alien energy signatures and threat intel.",
+      "states": {
+        "loading": "Radar scanning animation over global map",
+        "empty": "No active threats (Safe Mode) with subtle green radar ping",
+        "error": "Map connection failed; static noise overlay"
+      },
+      "layout": "Hero parallax global map image in background. Top bar shows AI Commander Level and Total XP. Floating tactical panels (using surfaceSecondary and borderStrong outlines) show active alien invasions. Bottom FAB to quick-deploy fleet."
+    },
+    {
+      "name": "Robot Builder",
+      "purpose": "Modular assembly of robot chassis, mobility, armor, weapons, and sensors.",
+      "states": {
+        "loading": "Wireframe schematic loading animation",
+        "empty": "No modules selected; skeleton chassis displayed",
+        "error": "Incompatible modules selected; red terminal warning"
+      },
+      "layout": "Top 50% shows the visual robot chassis. Bottom 50% contains a horizontal scrollable tab row for categories (Chassis, Mobility, Weapon) and a grid of selectable hexagonal/square chips for parts. Real-time segmented stat bars update on selection."
+    },
+    {
+      "name": "Fleet Hangar",
+      "purpose": "List of built robots ready for deployment.",
+      "states": {
+        "loading": "Loading robot schematics...",
+        "empty": "Hangar is empty. Illustration of a dark, empty factory bay. CTA: 'Build First Unit'",
+        "error": "Failed to load fleet data. Retry."
+      },
+      "layout": "Vertical list of heavy tactical cards. Each card features a clipped robot image, power level score in Rajdhani, and segmented health/armor bars. Quick 'Deploy' button on each card."
+    },
+    {
+      "name": "Combat Arena",
+      "purpose": "Turn-based tactical combat versus alien waves.",
+      "states": {
+        "loading": "Initializing combat grid...",
+        "empty": "N/A",
+        "error": "Connection lost to frontline unit."
+      },
+      "layout": "Split-screen HUD. Top half: Alien enemy with hostile magenta target locks and health bars. Bottom half: Player unit with cybernetic cyan HUD overlays and grid of Action Point skill buttons."
+    },
+    {
+      "name": "Threat Intel (Modal)",
+      "purpose": "Terminal-style modal providing lore and scans on APOLLYON.",
+      "states": {
+        "loading": "Decrypting alien signal...",
+        "empty": "No intel available.",
+        "error": "Decryption failed."
+      },
+      "layout": "Full-bleed sheet overlay with surfaceSecondary background. Monospaced terminal text typing effect. Alien entity image overlaid with red scanlines."
+    },
+    {
+      "name": "Leaderboard",
+      "purpose": "Global ranking of AI commanders.",
+      "states": {
+        "loading": "Syncing global commander scores...",
+        "empty": "No commanders ranked yet.",
+        "error": "Leaderboard offline."
+      },
+      "layout": "List of top players. Current player fixed at bottom if not in top 10. Ranks 1-3 highlighted with cybernetic cyan, warning amber, and success green accents."
+    }
+  ],
+  "images": {
+    "splash_bg": {
+      "url": "https://images.pexels.com/photos/12381327/pexels-photo-12381327.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/12381327/pexels-photo-12381327.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Holographic glowing earth map"
+    },
+    "command_center_map": {
+      "url": "https://images.pexels.com/photos/12381327/pexels-photo-12381327.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/12381327/pexels-photo-12381327.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Futuristic global holographic map"
+    },
+    "robot_builder_chassis": {
+      "url": "https://images.unsplash.com/photo-1654009603731-20b6d7536002?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwyfHxzY2ktZmklMjByb2JvdCUyMG1lY2h8ZW58MHx8fHwxNzg3NTE0MTc5fDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Sci-fi robot mech standing in water"
+    },
+    "combat_arena_bg": {
+      "url": "https://images.pexels.com/photos/7900586/pexels-photo-7900586.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "dark": "https://images.pexels.com/photos/7900586/pexels-photo-7900586.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Red illuminated cinematic combat arena"
+    },
+    "robot_part_detail": {
+      "url": "https://images.pexels.com/photos/8566521/pexels-photo-8566521.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Close-up of modern robot parts with glowing blue lights"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use the Dark-First Utility personality (7) adapted for a Sci-Fi HUD.",
+    "Borders and strokes should be thin (1pt) using borderStrong (brandPrimary cyan) or brandSecondary (hostile magenta) to create tactical framing, avoiding soft dropshadows.",
+    "Avoid Apple-style glassmorphism. This is a military interface; use solid dark backgrounds with opacity overlays rather than blur effects.",
+    "Implement Reanimated or Skia to add subtle HUD animations: slow panning scanlines, pulsing border opacities, and typing effects for terminal text.",
+    "Stats bars (health, armor, energy) should be segmented blocks rather than smooth continuous progress bars.",
+    "Typography hierarchy: Use Rajdhani for all numbers, player stats, levels, and prominent HUD titles. Use IBM Plex Sans for longer intelligence reports and body text.",
+    "Combat and Command screens should utilize gradient-to-dark scrims (vertical top-to-bottom) so that white/cyan HUD text remains perfectly legible over the holographic map and combat backgrounds."
+  ]
+}

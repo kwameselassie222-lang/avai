@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 2 full-stack test PASS. Backend: 14/14 pytest tests pass covering catalog structure, starting resources, energy regen + generation recompute, gen-1 robot creation with material/compute deduction, gen-2 lock enforcement, insufficient-materials error, delete refund (50% materials + full compute), threats/list rewards + alien_class, battle energy consumption + weapon_usage increment, INSUFFICIENT ENERGY, Sentinel adaptation note when weapon_usage.railgun>=5, harvester negative-materials on loss, research threshold -> gen 2, and AI brief for archon. Frontend: End-to-end mobile viewport flow verified — boot -> activate -> command (res-energy/mater/comp/rsrch cells + gen-panel + threat cards with class-locust badge) -> builder (cost-row + parts + save-robot-button) -> fleet (GEN 1 tag on new robot) -> ranks (GEN column present) -> combat (alien-class-banner + VICTORY with +materials/+research). Minor non-blocking: 'missile is not a valid icon name for family material-community' warning; props.pointerEvents deprecation warning persists from iteration 1.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "app/(tabs)/builder.tsx WEAPON parts grid",
+        "issue": "Icon 'missile' is not a valid MaterialCommunityIcons name, RN Web logs repeated warnings. Choose a valid icon like 'rocket-launch' or 'rocket'.",
+        "testID": "part-missile",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "hud / touchable wrapper",
+        "issue": "'props.pointerEvents is deprecated. Use style.pointerEvents' still logged. Non-blocking. Reference: react-native-web deprecation."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/test_backend_api.py",
+    "/app/test_reports/pytest/iteration2_results.xml"
+  ],
+  "action_items": [
+    "Replace 'missile' MaterialCommunityIcons name with a valid one (e.g., 'rocket-launch') in builder icon map to remove repeated console warnings.",
+    "Migrate props.pointerEvents -> style.pointerEvents in hud/touchable wrappers to silence RN Web deprecation warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py apply_energy_regen swallows ValueError on malformed resources_updated_at silently — acceptable but consider logging.",
+    "server.py: robot delete refund does not check that the robot's player still exists; if player was deleted the $inc silently no-ops (fine, but worth a note).",
+    "server.py: no validation that request Threat payload in /api/battle wasn't tampered client-side — a client could send arbitrary rewards. Consider server-side threat regeneration or signing.",
+    "compute_generation uses sorted(GEN_UNLOCK_RESEARCH.items()) each call — trivial cost but could be precomputed as a tuple.",
+    "server.py still uses deprecated @app.on_event('shutdown'); prefer lifespan handler (carry-over from iteration 1)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration2.py (new)"],
+  "success_rate": { "backend": "100% (14/14 iteration2 + 12/12 iteration1 test file still runnable)", "frontend": "100% of requested iteration-2 UI flows verified end-to-end" },
+  "seed_data_creation": "Created ephemeral player 'TEST_IT2_<uuid>' via backend tests and 'UI_IT2_<ts>' via frontend flow (with robot 'UITEST_ROBOT'). All modifications reset via test-scope MongoDB updates.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend iteration-2 tests use direct MongoDB access via motor to seed research/energy/weapon_usage values because those cannot be set through public API. BASE_URL is read from EXPO_PUBLIC_BACKEND_URL. For the frontend, tab navigation uses tabBarTestID which does not project into web DOM — click tab labels by text via page.get_by_text('COMMAND'|'BUILDER'|'FLEET'|'RANKS'). Combat select buttons follow pattern testID='select-<robot-name-with-hyphens>'.",
+  "rca_of_issue": "N/A — no bugs. Only cosmetic console warnings ('missile' icon + deprecated pointerEvents)."
+}
