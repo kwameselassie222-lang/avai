@@ -2308,7 +2308,8 @@ async def deploy_doctrine(req: DeployDoctrineRequest):
     if not doc:
         raise HTTPException(status_code=404, detail="Player not found")
     doc = ensure_defense_state(doc)
-    doctrine = next((d for d in (doc["defense"].get("doctrines", []) or []) if d.get("id") == req.doctrine_id), None)
+    doctrines = doc["defense"].get("doctrines", []) or []
+    doctrine = next((d for d in doctrines if d.get("id") == req.doctrine_id), None)
     if not doctrine:
         raise HTTPException(status_code=404, detail="Doctrine not found")
     layer_id = req.layer_id or doctrine.get("target_layer")
@@ -2326,8 +2327,19 @@ async def deploy_doctrine(req: DeployDoctrineRequest):
         if r:
             kept.append(rid)
     layers[layer_id]["assigned_robots"] += kept
-    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.layers": layers}})
-    return {"ok": True, "layer": layer_id, "assigned": len(kept), "layers": layers}
+    # Stamp deploy history on the doctrine
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for d in doctrines:
+        if d.get("id") == req.doctrine_id:
+            d["last_deployed_at"] = now_iso
+            d["last_deployed_layer"] = layer_id
+            d["last_deployed_count"] = len(kept)
+            break
+    await db.players.update_one(
+        {"id": req.player_id},
+        {"$set": {"defense.layers": layers, "defense.doctrines": doctrines}},
+    )
+    return {"ok": True, "layer": layer_id, "assigned": len(kept), "layers": layers, "doctrines": doctrines}
 
 
 @api_router.post("/defense/zone_repair")

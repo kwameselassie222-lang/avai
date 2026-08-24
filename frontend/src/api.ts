@@ -219,6 +219,9 @@ export type Doctrine = {
   name: string;
   robot_ids: string[];
   target_layer?: LayerId | null;
+  last_deployed_at?: string | null;
+  last_deployed_layer?: LayerId | null;
+  last_deployed_count?: number | null;
 };
 
 export type Player = {

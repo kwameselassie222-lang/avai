@@ -10,6 +10,20 @@ import { TerminalHeader, HudButton } from "@/src/components/hud";
 
 const LAYER_OPTIONS: LayerId[] = ["deep_space", "orbital", "atmosphere", "ground"];
 
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  const now = Date.now();
+  const diff = Math.max(0, now - then);
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ago`;
+}
+
 export default function DoctrinesScreen() {
   const router = useRouter();
   const [doctrines, setDoctrines] = useState<Doctrine[]>([]);
@@ -17,6 +31,13 @@ export default function DoctrinesScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<Doctrine | null>(null);
+  const [, forceTick] = useState(0);
+
+  // Re-render every 60s so "3m ago" stays fresh
+  useEffect(() => {
+    const t = setInterval(() => forceTick((n) => n + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
 
   const load = useCallback(async () => {
     const id = await storage.getPlayerId();
@@ -178,6 +199,13 @@ export default function DoctrinesScreen() {
                 {d.robot_ids.length} robot{d.robot_ids.length === 1 ? "" : "s"}
                 {m ? `  →  ${m.name.toUpperCase()}` : "  → NO TARGET LAYER"}
               </Text>
+              {d.last_deployed_at ? (
+                <Text style={styles.deployHistory}>
+                  ◆ Last deployed {timeAgo(d.last_deployed_at)} → {(d.last_deployed_layer || "").replace("_", " ").toUpperCase()} • {d.last_deployed_count ?? 0} bot{d.last_deployed_count === 1 ? "" : "s"}
+                </Text>
+              ) : (
+                <Text style={styles.deployHistoryNever}>◆ Never deployed</Text>
+              )}
               <Pressable
                 onPress={() => deploy(d)}
                 disabled={busy || !d.target_layer || d.robot_ids.length === 0}
@@ -242,6 +270,8 @@ const styles = StyleSheet.create({
   doctrineName: { flex: 1, fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: fontSize.base, letterSpacing: 1.5 },
   iconBtn: { padding: 4 },
   doctrineMeta: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 4, letterSpacing: 0.5 },
+  deployHistory: { fontFamily: fonts.displayBold, color: colors.success, fontSize: fontSize.xs, marginTop: 4, letterSpacing: 1 },
+  deployHistoryNever: { fontFamily: fonts.display, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 4, letterSpacing: 1 },
   deployBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
     alignSelf: "flex-start", marginTop: spacing.sm,
