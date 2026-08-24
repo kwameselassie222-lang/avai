@@ -674,6 +674,100 @@ export const api = {
     });
     return j(res);
   },
+
+  // ==== V2 (Simplified lane-battle) ====
+  async v2Config(): Promise<V2Config> {
+    return j(await fetch(`${API}/v2/config`));
+  },
+  async v2Player(playerId: string): Promise<V2PlayerResponse> {
+    return j(await fetch(`${API}/v2/player/${playerId}`));
+  },
+  async v2BattleComplete(payload: {
+    player_id: string;
+    level_id: number;
+    victory: boolean;
+    stars?: number;
+    time_taken_sec?: number;
+    core_hp_remaining_pct?: number;
+  }): Promise<V2BattleResult> {
+    const res = await fetch(`${API}/v2/battle/complete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async v2UpgradeRobot(payload: { player_id: string; robot_id: string }): Promise<any> {
+    const res = await fetch(`${API}/v2/robots/upgrade`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async v2SetDeck(payload: { player_id: string; deck: string[] }): Promise<any> {
+    const res = await fetch(`${API}/v2/deck`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async v2SetAbility(payload: { player_id: string; ability_id: string }): Promise<any> {
+    const res = await fetch(`${API}/v2/commander/ability`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async v2Evolve(playerId: string): Promise<any> {
+    return j(await fetch(`${API}/v2/commander/evolve?player_id=${playerId}`, { method: "POST" }));
+  },
+};
+
+// ==== V2 types ====
+export type V2Robot = {
+  id: string; name: string; cost: number; hp: number; atk: number; speed: number;
+  range: number; atk_rate: number; kind: "ground" | "air"; unlock_level: number; flavor: string;
+};
+export type V2Alien = {
+  id: string; name: string; hp: number; atk: number; speed: number; range: number; atk_rate: number;
+  kind: "ground" | "air"; reward: number; boss?: boolean;
+};
+export type V2Wave = { at: number; type: string; lane: "left" | "center" | "right" };
+export type V2Level = {
+  id: number; name: string; world: number; difficulty: number; energy_start: number;
+  target_time: number; waves: V2Wave[]; core_hp: number; boss?: string;
+};
+export type V2Ability = { id: string; name: string; desc: string; damage?: number; stun?: number; heal_pct?: number; duration?: number; boost?: number };
+export type V2Stage = { stage: number; name: string; req_stars: number; hp_bonus: number };
+export type V2Config = { levels: V2Level[]; robots: V2Robot[]; aliens: V2Alien[]; abilities: V2Ability[]; stages: V2Stage[] };
+
+export type V2Campaign = {
+  level: number;
+  stars: Record<string, number>;
+  parts: number;
+  unlocked_robots: string[];
+  robot_levels: Record<string, number>;
+  commander_stage: number;
+  commander_ability: string;
+  deck: string[];
+};
+
+export type V2PlayerResponse = {
+  id: string;
+  codename: string;
+  campaign: V2Campaign;
+  total_stars: number;
+};
+
+export type V2BattleResult = {
+  victory: boolean;
+  stars: number;
+  parts_awarded: number;
+  campaign: V2Campaign;
+  unlocked_robot: string | null;
 };
 
 // -------- Catalog (mirror of backend TABLES) --------

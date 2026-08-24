@@ -2742,6 +2742,323 @@ async def season_claim(req: SeasonClaimRequest):
     }
 
 
+# ============================================================
+# ITERATION 8 — SIMPLIFIED CAMPAIGN (v2 endpoints)
+# ============================================================
+
+# 10 MVP levels
+V2_LEVELS = [
+    {"id": 1,  "name": "First Landing — Atlanta",   "world": 1, "difficulty": 1.0, "energy_start": 4, "target_time": 90, "waves": [
+        {"at": 2,  "type": "crawler", "lane": "center"},
+        {"at": 6,  "type": "crawler", "lane": "left"},
+        {"at": 12, "type": "crawler", "lane": "right"},
+        {"at": 20, "type": "crawler", "lane": "center"},
+    ], "core_hp": 300},
+    {"id": 2,  "name": "Washington Perimeter",       "world": 1, "difficulty": 1.15, "energy_start": 5, "target_time": 100, "waves": [
+        {"at": 3,  "type": "crawler", "lane": "left"},
+        {"at": 7,  "type": "spitter", "lane": "right"},
+        {"at": 14, "type": "crawler", "lane": "center"},
+        {"at": 22, "type": "spitter", "lane": "left"},
+    ], "core_hp": 380},
+    {"id": 3,  "name": "New York Skies",             "world": 1, "difficulty": 1.3, "energy_start": 5, "target_time": 110, "waves": [
+        {"at": 3,  "type": "flyer",   "lane": "center"},
+        {"at": 9,  "type": "crawler", "lane": "left"},
+        {"at": 15, "type": "flyer",   "lane": "right"},
+        {"at": 22, "type": "spitter", "lane": "center"},
+    ], "core_hp": 450},
+    {"id": 4,  "name": "London Docks",               "world": 2, "difficulty": 1.5, "energy_start": 6, "target_time": 110, "waves": [
+        {"at": 3,  "type": "crawler", "lane": "center"},
+        {"at": 8,  "type": "brute",   "lane": "left"},
+        {"at": 16, "type": "spitter", "lane": "right"},
+        {"at": 25, "type": "brute",   "lane": "center"},
+    ], "core_hp": 550},
+    {"id": 5,  "name": "Lagos Firewall",             "world": 2, "difficulty": 1.65, "energy_start": 6, "target_time": 120, "waves": [
+        {"at": 4,  "type": "crawler", "lane": "left"},
+        {"at": 4,  "type": "crawler", "lane": "right"},
+        {"at": 12, "type": "flyer",   "lane": "center"},
+        {"at": 20, "type": "brute",   "lane": "left"},
+        {"at": 28, "type": "spitter", "lane": "right"},
+    ], "core_hp": 620},
+    {"id": 6,  "name": "Cairo Advance",              "world": 2, "difficulty": 1.8, "energy_start": 7, "target_time": 130, "waves": [
+        {"at": 3,  "type": "brute",   "lane": "center"},
+        {"at": 10, "type": "flyer",   "lane": "left"},
+        {"at": 16, "type": "spitter", "lane": "right"},
+        {"at": 26, "type": "brute",   "lane": "center"},
+    ], "core_hp": 720},
+    {"id": 7,  "name": "Dubai Corridor",             "world": 3, "difficulty": 2.0, "energy_start": 7, "target_time": 140, "waves": [
+        {"at": 3,  "type": "crawler", "lane": "left"},
+        {"at": 3,  "type": "crawler", "lane": "right"},
+        {"at": 10, "type": "brute",   "lane": "center"},
+        {"at": 18, "type": "flyer",   "lane": "left"},
+        {"at": 26, "type": "brute",   "lane": "right"},
+    ], "core_hp": 820},
+    {"id": 8,  "name": "Mumbai Shore",               "world": 3, "difficulty": 2.15, "energy_start": 8, "target_time": 140, "waves": [
+        {"at": 3,  "type": "spitter", "lane": "center"},
+        {"at": 8,  "type": "brute",   "lane": "left"},
+        {"at": 15, "type": "flyer",   "lane": "right"},
+        {"at": 22, "type": "brute",   "lane": "center"},
+        {"at": 30, "type": "spitter", "lane": "left"},
+    ], "core_hp": 900},
+    {"id": 9,  "name": "Shanghai Push",              "world": 3, "difficulty": 2.35, "energy_start": 8, "target_time": 150, "waves": [
+        {"at": 3,  "type": "crawler", "lane": "center"},
+        {"at": 3,  "type": "flyer",   "lane": "left"},
+        {"at": 12, "type": "brute",   "lane": "right"},
+        {"at": 20, "type": "spitter", "lane": "center"},
+        {"at": 30, "type": "brute",   "lane": "left"},
+    ], "core_hp": 1000},
+    {"id": 10, "name": "Tokyo Hive — HIVE QUEEN",    "world": 3, "difficulty": 2.6, "energy_start": 8, "target_time": 180, "boss": "hive_queen", "waves": [
+        {"at": 3,  "type": "crawler", "lane": "left"},
+        {"at": 3,  "type": "crawler", "lane": "right"},
+        {"at": 10, "type": "brute",   "lane": "center"},
+        {"at": 20, "type": "flyer",   "lane": "left"},
+        {"at": 30, "type": "spitter", "lane": "right"},
+    ], "core_hp": 1600},
+]
+
+V2_ROBOTS = [
+    {"id": "scout",    "name": "SCOUT BOT", "cost": 2, "hp": 220, "atk": 16, "speed": 1.3, "range": 20, "atk_rate": 1.1, "kind": "ground", "unlock_level": 1,
+     "flavor": "Small, fast, weak armor. Best for rushing swarms."},
+    {"id": "guardian", "name": "GUARDIAN",  "cost": 3, "hp": 560, "atk": 14, "speed": 0.7, "range": 18, "atk_rate": 1.0, "kind": "ground", "unlock_level": 2,
+     "flavor": "Energy shield. Best for holding a lane and absorbing hits."},
+    {"id": "drone",    "name": "DRONE",     "cost": 3, "hp": 200, "atk": 20, "speed": 1.0, "range": 60, "atk_rate": 1.2, "kind": "air",    "unlock_level": 3,
+     "flavor": "Flying ranged support. Reaches enemies ground bots cannot."},
+    {"id": "striker",  "name": "STRIKER",   "cost": 4, "hp": 400, "atk": 30, "speed": 0.95, "range": 22, "atk_rate": 0.9, "kind": "ground", "unlock_level": 4,
+     "flavor": "Balanced primary combat robot."},
+    {"id": "sniper",   "name": "SNIPER",    "cost": 4, "hp": 180, "atk": 55, "speed": 0.85, "range": 90, "atk_rate": 0.6, "kind": "ground", "unlock_level": 5,
+     "flavor": "Long-range high-damage. Weak armor."},
+    {"id": "tank",     "name": "TANK BOT",  "cost": 6, "hp": 1100, "atk": 32, "speed": 0.55, "range": 22, "atk_rate": 0.7, "kind": "ground", "unlock_level": 7,
+     "flavor": "Heavy ground unit. Slow but very tough."},
+    {"id": "titan",    "name": "TITAN",     "cost": 7, "hp": 1500, "atk": 50, "speed": 0.5, "range": 24, "atk_rate": 0.7, "kind": "ground", "unlock_level": 9,
+     "flavor": "Massive heavy combat robot. Expensive."},
+]
+
+V2_ALIENS = [
+    {"id": "crawler", "name": "Crawler", "hp": 90,  "atk": 10, "speed": 1.1, "range": 18, "atk_rate": 1.0, "kind": "ground", "reward": 3},
+    {"id": "spitter", "name": "Spitter", "hp": 120, "atk": 14, "speed": 0.8, "range": 60, "atk_rate": 1.0, "kind": "ground", "reward": 5},
+    {"id": "brute",   "name": "Brute",   "hp": 320, "atk": 22, "speed": 0.7, "range": 18, "atk_rate": 0.8, "kind": "ground", "reward": 8},
+    {"id": "flyer",   "name": "Flyer",   "hp": 110, "atk": 12, "speed": 1.2, "range": 24, "atk_rate": 1.0, "kind": "air",    "reward": 5},
+    {"id": "hive_queen", "name": "HIVE QUEEN", "hp": 3000, "atk": 60, "speed": 0.35, "range": 30, "atk_rate": 0.6, "kind": "ground", "reward": 200, "boss": True},
+]
+
+V2_COMMANDER_ABILITIES = [
+    {"id": "orbital", "name": "ORBITAL STRIKE", "desc": "Instant area damage in all lanes.", "damage": 180},
+    {"id": "emp",     "name": "EMP PULSE",      "desc": "Stun all aliens for 3 seconds.",    "stun": 3.0},
+    {"id": "repair",  "name": "REPAIR WAVE",    "desc": "Heal all robots +40% HP.",           "heal_pct": 0.4},
+    {"id": "overclock","name": "OVERCLOCK",     "desc": "+50% robot damage & speed for 6s.", "duration": 6.0, "boost": 0.5},
+]
+
+V2_COMMANDER_STAGES = [
+    {"stage": 1, "name": "A.I. UNIT ONE — GENESIS",   "req_stars": 0,  "hp_bonus": 0},
+    {"stage": 2, "name": "A.I. UNIT ONE — REINFORCED", "req_stars": 6,  "hp_bonus": 10},
+    {"stage": 3, "name": "A.I. UNIT ONE — WEAPONIZED", "req_stars": 15, "hp_bonus": 25},
+    {"stage": 4, "name": "A.I. UNIT ONE — ALIEN-TECH", "req_stars": 24, "hp_bonus": 45},
+    {"stage": 5, "name": "A.I. UNIT ONE — ASCENDED",   "req_stars": 30, "hp_bonus": 75},
+]
+
+
+def default_v2_campaign() -> dict:
+    return {
+        "level": 1,           # highest unlocked level
+        "stars": {},          # {"1": 3, "2": 2}
+        "parts": 0,           # currency
+        "unlocked_robots": ["scout"],
+        "robot_levels": {"scout": 1},  # each level +8% hp +8% atk
+        "commander_stage": 1,
+        "commander_ability": "orbital",
+        "deck": ["scout"],
+    }
+
+
+def ensure_v2(player_doc: dict) -> dict:
+    if "campaign" not in player_doc or not player_doc["campaign"]:
+        player_doc["campaign"] = default_v2_campaign()
+    else:
+        # backfill any missing keys
+        for k, v in default_v2_campaign().items():
+            player_doc["campaign"].setdefault(k, v)
+    return player_doc
+
+
+class V2CompleteBattleRequest(BaseModel):
+    player_id: str
+    level_id: int
+    victory: bool
+    stars: int = 0             # 0..3
+    time_taken_sec: Optional[float] = None
+    core_hp_remaining_pct: Optional[float] = None
+
+
+class V2UpgradeRequest(BaseModel):
+    player_id: str
+    robot_id: str
+
+
+class V2DeckRequest(BaseModel):
+    player_id: str
+    deck: List[str]  # max 6 robot ids
+
+
+class V2AbilityRequest(BaseModel):
+    player_id: str
+    ability_id: str
+
+
+def _v2_robot_by_id(rid: str) -> Optional[dict]:
+    return next((r for r in V2_ROBOTS if r["id"] == rid), None)
+
+
+def _v2_level_by_id(lid: int) -> Optional[dict]:
+    return next((L for L in V2_LEVELS if L["id"] == lid), None)
+
+
+def _v2_upgrade_cost(current_level: int) -> int:
+    # Level 1→2 costs 30, then +25 per level
+    return 30 + max(0, current_level - 1) * 25
+
+
+@api_router.get("/v2/config")
+async def v2_config():
+    return {
+        "levels": V2_LEVELS,
+        "robots": V2_ROBOTS,
+        "aliens": V2_ALIENS,
+        "abilities": V2_COMMANDER_ABILITIES,
+        "stages": V2_COMMANDER_STAGES,
+    }
+
+
+@api_router.get("/v2/player/{player_id}")
+async def v2_player(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_v2(doc)
+    await db.players.update_one({"id": player_id}, {"$set": {"campaign": doc["campaign"]}})
+    total_stars = sum(int(v) for v in doc["campaign"]["stars"].values())
+    return {
+        "id": doc["id"],
+        "codename": doc.get("codename", "COMMANDER"),
+        "campaign": doc["campaign"],
+        "total_stars": total_stars,
+    }
+
+
+@api_router.post("/v2/battle/complete")
+async def v2_battle_complete(req: V2CompleteBattleRequest):
+    level = _v2_level_by_id(req.level_id)
+    if not level:
+        raise HTTPException(status_code=404, detail="Unknown level")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_v2(doc)
+    camp = doc["campaign"]
+
+    stars = max(0, min(3, int(req.stars)))
+    parts_awarded = 0
+    unlocked = None
+    if req.victory:
+        # Reward parts (scales with level)
+        parts_awarded = 15 + req.level_id * 6 + stars * 10
+        if level.get("boss"):
+            parts_awarded += 150
+        camp["parts"] = int(camp.get("parts", 0)) + parts_awarded
+        # Only store max stars per level
+        prev = int(camp["stars"].get(str(req.level_id), 0))
+        camp["stars"][str(req.level_id)] = max(prev, stars)
+        # Advance level (unlock next)
+        if req.level_id >= int(camp.get("level", 1)):
+            camp["level"] = min(len(V2_LEVELS), req.level_id + 1)
+        # Unlock new robot if we crossed its unlock level
+        for r in V2_ROBOTS:
+            if r["unlock_level"] <= req.level_id and r["id"] not in camp["unlocked_robots"]:
+                camp["unlocked_robots"].append(r["id"])
+                camp["robot_levels"].setdefault(r["id"], 1)
+                unlocked = r["id"]
+
+    await db.players.update_one({"id": req.player_id}, {"$set": {"campaign": camp}})
+    return {
+        "victory": req.victory,
+        "stars": stars,
+        "parts_awarded": parts_awarded,
+        "campaign": camp,
+        "unlocked_robot": unlocked,
+    }
+
+
+@api_router.post("/v2/robots/upgrade")
+async def v2_robot_upgrade(req: V2UpgradeRequest):
+    r = _v2_robot_by_id(req.robot_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Unknown robot")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_v2(doc)
+    camp = doc["campaign"]
+    if req.robot_id not in camp["unlocked_robots"]:
+        raise HTTPException(status_code=400, detail="Robot not unlocked")
+    current = int(camp["robot_levels"].get(req.robot_id, 1))
+    if current >= 10:
+        raise HTTPException(status_code=400, detail="MAX LEVEL")
+    cost = _v2_upgrade_cost(current)
+    if int(camp["parts"]) < cost:
+        raise HTTPException(status_code=400, detail=f"INSUFFICIENT PARTS: need {cost}")
+    camp["parts"] -= cost
+    camp["robot_levels"][req.robot_id] = current + 1
+    await db.players.update_one({"id": req.player_id}, {"$set": {"campaign": camp}})
+    return {"robot_id": req.robot_id, "new_level": current + 1, "cost": cost, "campaign": camp}
+
+
+@api_router.post("/v2/deck")
+async def v2_set_deck(req: V2DeckRequest):
+    if len(req.deck) > 6:
+        raise HTTPException(status_code=400, detail="Max 6 robots in deck")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_v2(doc)
+    camp = doc["campaign"]
+    for rid in req.deck:
+        if rid not in camp["unlocked_robots"]:
+            raise HTTPException(status_code=400, detail=f"Robot {rid} not unlocked")
+    camp["deck"] = list(req.deck)
+    await db.players.update_one({"id": req.player_id}, {"$set": {"campaign": camp}})
+    return {"deck": camp["deck"]}
+
+
+@api_router.post("/v2/commander/ability")
+async def v2_set_ability(req: V2AbilityRequest):
+    if not any(a["id"] == req.ability_id for a in V2_COMMANDER_ABILITIES):
+        raise HTTPException(status_code=400, detail="Unknown ability")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_v2(doc)
+    doc["campaign"]["commander_ability"] = req.ability_id
+    await db.players.update_one({"id": req.player_id}, {"$set": {"campaign": doc["campaign"]}})
+    return {"ability_id": req.ability_id}
+
+
+@api_router.post("/v2/commander/evolve")
+async def v2_commander_evolve(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_v2(doc)
+    camp = doc["campaign"]
+    total = sum(int(v) for v in camp["stars"].values())
+    cur = int(camp.get("commander_stage", 1))
+    next_stage = next((s for s in V2_COMMANDER_STAGES if s["stage"] == cur + 1), None)
+    if not next_stage:
+        raise HTTPException(status_code=400, detail="Already at max stage")
+    if total < next_stage["req_stars"]:
+        raise HTTPException(status_code=400, detail=f"Need {next_stage['req_stars']} total stars (have {total})")
+    camp["commander_stage"] = cur + 1
+    await db.players.update_one({"id": player_id}, {"$set": {"campaign": camp}})
+    return {"stage": camp["commander_stage"], "campaign": camp}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

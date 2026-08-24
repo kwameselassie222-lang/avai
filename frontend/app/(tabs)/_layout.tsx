@@ -1,7 +1,7 @@
 import React from "react";
 import { Tabs } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { View, StyleSheet } from "react-native";
+import { View } from "react-native";
 import { colors, fonts, fontSize } from "@/src/theme";
 
 function TabIcon({ name, color }: { name: any; color: string }) {
@@ -37,33 +37,29 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="command"
         options={{
-          title: "COMMAND",
-          tabBarIcon: ({ color }) => <TabIcon name="radar" color={color} />,
-          tabBarTestID: "tab-command",
+          title: "HOME",
+          tabBarIcon: ({ color }) => <TabIcon name="home" color={color} />,
         }}
       />
       <Tabs.Screen
         name="builder"
         options={{
-          title: "BUILDER",
-          tabBarIcon: ({ color }) => <TabIcon name="robot-industrial" color={color} />,
-          tabBarTestID: "tab-builder",
+          title: "ROBOTS",
+          tabBarIcon: ({ color }) => <TabIcon name="robot" color={color} />,
         }}
       />
       <Tabs.Screen
         name="fleet"
         options={{
-          title: "FLEET",
-          tabBarIcon: ({ color }) => <TabIcon name="robot-happy" color={color} />,
-          tabBarTestID: "tab-fleet",
+          title: "MAP",
+          tabBarIcon: ({ color }) => <TabIcon name="map" color={color} />,
         }}
       />
       <Tabs.Screen
         name="leaderboard"
         options={{
-          title: "RANKS",
-          tabBarIcon: ({ color }) => <TabIcon name="trophy" color={color} />,
-          tabBarTestID: "tab-leaderboard",
+          title: "COMMANDER",
+          tabBarIcon: ({ color }) => <TabIcon name="account-hard-hat" color={color} />,
         }}
       />
     </Tabs>

@@ -158,3 +158,46 @@ Massive gameplay identity shift. The player is now Earth's Superintelligence, de
 ### NOT INCLUDED (needs native build)
 - Real AdMob/UnityAds SDK integration — currently uses a 2.4s simulated relay. Swap the timeout in `transmission-modal.tsx` for `AdMob.showRewarded()` and only call `api.watchTransmission()` in the onCompleted callback
 - Real IAP (RevenueCat / Stripe) — currently mocked; server accepts and grants immediately. Wrap `store_purchase` behind receipt verification on native
+
+## Iteration 8 — REDESIGN: Simple Lane-Battle MVP
+
+Complete gameplay redesign per user's new master prompt. The game is now a **clean, arcade-simple lane-defense** rather than a complex logic simulator.
+
+**Core loop (30-second learnable):**
+Choose robot card → Tap lane → Robot auto-fights → Destroy alien core → Earn parts → Upgrade → Next level
+
+**New game structure:**
+- **HOME** — A.I. Unit One card + big BATTLE button + tiles
+- **ROBOTS** — 7-robot collection, upgrade with parts, 6-card deck builder
+- **MAP** — 10-level linear campaign, Atlanta → Tokyo, boss on Level 10 (HIVE QUEEN)
+- **COMMANDER** — 5 evolution stages gated by total stars, 4 commander abilities to choose (Orbital Strike / EMP Pulse / Repair Wave / Overclock)
+
+**Battle screen:**
+- Vertical battlefield, 3 lanes (left/center/right)
+- Bottom: Earth Core HP bar + energy 0-10 (regens 0.5/s) + ability button + 6 robot cards
+- Top: Alien Core HP bar + timer
+- Tap card → tap deploy zone → robot spawns and auto-fights
+- Client-side game engine at 60fps via requestAnimationFrame
+
+**Starter roster (7 robots):**
+Scout (2⚡ swarm rusher), Guardian (3⚡ tank), Drone (3⚡ air), Striker (4⚡ balanced), Sniper (4⚡ long-range), Tank Bot (6⚡ heavy), Titan (7⚡ ultimate)
+
+**4 alien types + 1 boss:**
+Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
+
+**3-star ratings per level:** Complete / Core > 50% HP / Within target time
+
+**Backend endpoints (v2):**
+- `GET /api/v2/config`
+- `GET /api/v2/player/{id}` (auto-bootstraps campaign)
+- `POST /api/v2/battle/complete` (awards parts, unlocks next robot)
+- `POST /api/v2/robots/upgrade` (30 parts + 25 per level)
+- `POST /api/v2/deck` (max 6)
+- `POST /api/v2/commander/ability`, `POST /api/v2/commander/evolve`
+
+**Legacy screens** (defense/*, store/*, apollyon, combat, invasion, network, archons, doctrines, zones, protocols, triage, layers) remain in the codebase but are removed from the tab nav. They can be deep-linked but the primary UX is the new lane-battle. This preserves all iteration 1–7 work for potential future depth.
+
+**Client-side files:**
+- `src/game/engine.ts` — full battle engine (init, tick, deploy, ability, stars)
+- `app/battle.tsx` — battle screen
+- 4 rewritten tabs
