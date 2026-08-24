@@ -70,7 +70,7 @@ export type ProtocolRule = {
   name: string;
   priority: number;
   enabled: boolean;
-  conditions: { key: string; op?: string; value: string }[];
+  conditions: { key: string; op?: string; value: string; combine?: "and" | "or" }[];
   actions: { key: string; value: string }[];
 };
 
@@ -135,6 +135,81 @@ export type EngageResult = {
   surviving_ships: number;
   rewards: { xp: number; research: number; materials: number };
   resources: Resources;
+};
+
+// ==== Iteration 5 — Archons, Triage, Cascade, Deeper Protocols ====
+
+export type Archon = {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  min_wave: number;
+  min_gen: number;
+  narrative: string;
+  hp: number;
+  attack: number;
+  defense: number;
+  mechanic: "summon" | "jam" | "drain" | "reflect";
+  rewards: {
+    materials?: number;
+    research?: number;
+    compute?: number;
+    xp?: number;
+    part_unlock?: string;
+  };
+  defeated?: boolean;
+  unlocked?: boolean;
+  gate_wave?: number;
+  gate_gen?: number;
+  reward_unlocked?: boolean;
+};
+
+export type ArchonBattleResult = {
+  archon: Archon;
+  sim: {
+    victory: boolean;
+    rounds: { round: number; player_dmg: number; archon_dmg: number; reflect: number; player_hp: number; archon_hp: number }[];
+    player_hp_left: number;
+    archon_hp_left: number;
+    material_drain: number;
+    summons: number;
+    notes: string[];
+  };
+  rewards: any;
+  resources: Resources;
+  defense: DefenseState;
+};
+
+export type TriageScan = {
+  id: string;
+  message: string;
+  zones: {
+    id: string;
+    name: string;
+    icon: string;
+    color: string;
+    integrity: number;
+    weight: number;
+    incoming_damage: number;
+  }[];
+};
+
+export type TriageResolve = {
+  resolved: { id: string; name: string; action: "defended" | "sacrificed"; damage: number; integrity: number }[];
+  viability_after: number;
+  resources: Resources;
+};
+
+export type CascadeModifiers = {
+  build_material_mult: number;
+  build_compute_mult: number;
+  compute_regen_mult: number;
+  energy_regen_mult: number;
+  sensor_penalty: number;
+  warnings: string[];
+  effective_sensor_tier: number;
+  base_sensor_tier: number;
 };
 
 export type Player = {
@@ -432,6 +507,37 @@ export const api = {
   },
   async defenseReset(playerId: string): Promise<DefenseState> {
     return j(await fetch(`${API}/defense/reset/${playerId}`, { method: "POST" }));
+  },
+
+  // ==== Iteration 5 — Archons, Triage, Cascade ====
+  async archonsConfig(): Promise<{ archons: Archon[] }> {
+    return j(await fetch(`${API}/archons/config`));
+  },
+  async archonsStatus(playerId: string): Promise<{ archons: Archon[]; wave_count: number; generation: number }> {
+    return j(await fetch(`${API}/archons/status/${playerId}`));
+  },
+  async archonBattle(payload: { player_id: string; robot_id: string; archon_id: string }): Promise<ArchonBattleResult> {
+    const res = await fetch(`${API}/archons/battle`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async triageScan(playerId: string): Promise<TriageScan> {
+    const res = await fetch(`${API}/triage/scan/${playerId}`, { method: "POST" });
+    return j(res);
+  },
+  async triageResolve(payload: { player_id: string; defend_zone_ids: string[] }): Promise<TriageResolve> {
+    const res = await fetch(`${API}/triage/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async cascadeState(playerId: string): Promise<CascadeModifiers> {
+    return j(await fetch(`${API}/defense/cascade/${playerId}`));
   },
 };
 

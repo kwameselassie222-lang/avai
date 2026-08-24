@@ -309,3 +309,146 @@ agent_communication:
           - Insufficient-resources build → 400 with 'Need N <RESOURCE>' detail
         No blockers. All iteration 4 backend tasks marked working=true, needs_retesting=false.
         Frontend not tested per request.
+
+# ============ ITERATION 5 ADDITIONS ============
+
+backend:
+  - task: "Cascading damage modifiers (GET /api/defense/cascade/{id})"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Compromised zones apply penalties:
+            - energy<40 → build_material_mult *1.25, energy_regen_mult *0.5
+            - industry<40 → build_material_mult *1.3
+            - tech<40 → compute_regen_mult *0.5, build_compute_mult *1.3, sensor_penalty +1
+            - rare<30 → build_material_mult *1.4
+            Robot creation now uses robot_cost_with_cascade().
+            Effective sensor tier used by invasion/scan.
+
+  - task: "Archon endpoints (config, status, battle)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            4 archons: swarm_lord (summon), silence (jam), devourer (drain), mirror (reflect).
+            Gates: swarm=W2/G2, silence=W4/G3, devourer=W6/G4, mirror=W8/G4.
+            /archons/config returns full list. /archons/status/{id} returns per-player unlocked/defeated flags.
+            /archons/battle requires 20 energy, runs turn-based sim with mechanic effects, awards rewards + part_unlock.
+
+  - task: "Multi-front triage (POST /api/triage/scan/{id}, /triage/resolve)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Unlocks after wave 3. Scan picks 3 highest-weight healthy zones, attaches incoming_damage.
+            Resolve requires exactly 2 defend_zone_ids; defended takes 35% damage, sacrificed takes full.
+            Awards +12 research.
+
+  - task: "Deeper protocol evaluator (AND/OR, alien_class, viability_below, adaptation_active)"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            eval_protocol_conditions() splits by 'combine':'or' into OR groups.
+            Supports keys: ship_type, layer, alien_class, viability_below, adaptation_active.
+            Applied in simulate_invasion via apply_protocol_boost() ctx.
+
+frontend:
+  - task: "Command tab: cascade warnings + Archons/Triage CTAs"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/(tabs)/command.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+
+  - task: "Archons screen (list, engage, result)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/defense/archons.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+
+  - task: "Triage screen (scan, choose 2, resolve)"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/defense/triage.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+
+  - task: "Protocol editor: AND/OR toggle + new condition keys"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/defense/protocols.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+
+test_plan:
+  current_focus:
+    - "Cascading damage modifiers (GET /api/defense/cascade/{id})"
+    - "Archon endpoints (config, status, battle)"
+    - "Multi-front triage (POST /api/triage/scan/{id}, /triage/resolve)"
+    - "Deeper protocol evaluator (AND/OR, alien_class, viability_below, adaptation_active)"
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Iteration 5 adds:
+        1. Cascading damage (zone integrity → build/regen/sensor penalties)
+        2. Archon mini-bosses (4 unique mechanics: summon, jam, drain, reflect)
+        3. Multi-front triage (choose 2 of 3 zones to defend)
+        4. Deeper protocol logic (AND/OR + alien_class + viability_below + adaptation_active)
+
+        Please backend-test:
+        A. Cascading:
+           - Fresh player has empty warnings, tier 1
+           - Manually drop energy zone to 30 → warnings include "ENERGY GRID compromised", build_material_mult=1.25, energy_regen_mult=0.5
+           - Drop tech to 25 → adds "TECH INFRA compromised" warning, effective_sensor_tier = max(1, base-1)
+           - Create a robot with damaged zones → cost should reflect the multipliers (higher materials/compute)
+        B. Archons:
+           - GET /archons/config returns 4 archons
+           - GET /archons/status/{new_player_id} → all locked (wave/gen too low)
+           - Simulate a defeated archon by pushing wave_count via multiple engages, then battle → should succeed if wave/gen met
+           - Battle same archon twice → 400 "already defeated"
+           - Devourer battle drains materials; Mirror reflects 40%; Swarm Lord summons (log notes contain "SWARM LORD summons")
+        C. Triage:
+           - triage/scan with wave_count < 3 → 400
+           - Advance wave then scan → returns 3 zones with incoming_damage
+           - resolve with 1 zone → 400 "exactly 2"
+           - resolve with 3 zones → 400
+           - resolve with valid 2 → defended zones lose ~35% of dmg, sacrificed loses full
+        D. Deeper protocols:
+           - Save protocol with 2 conditions, second has combine='or' → returns 200 and stored
+           - Save protocol with condition {key:'viability_below', value:'50'} → stored
+           - Save protocol with condition {key:'adaptation_active', value:'ECM JAMMING'} → stored
+           - Optional: run an engage and confirm rule mult is applied when conditions match
+
+        Do not test frontend. Backend-only.

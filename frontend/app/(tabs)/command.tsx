@@ -20,6 +20,7 @@ import {
   DefenseState,
   ResourceZone,
   DefenseLayer,
+  CascadeModifiers,
 } from "@/src/api";
 import { LAYER_META, LAYER_ORDER } from "@/src/defense-meta";
 import { TerminalHeader } from "@/src/components/hud";
@@ -30,6 +31,9 @@ export default function EarthAIConsole() {
   const router = useRouter();
   const [player, setPlayer] = useState<Player | null>(null);
   const [defense, setDefense] = useState<DefenseState | null>(null);
+  const [cascade, setCascade] = useState<CascadeModifiers | null>(null);
+  const [archonsDefeated, setArchonsDefeated] = useState<number>(0);
+  const [archonsTotal, setArchonsTotal] = useState<number>(4);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -40,9 +44,17 @@ export default function EarthAIConsole() {
         router.replace("/");
         return;
       }
-      const [p, d] = await Promise.all([api.getPlayer(id), api.defenseState(id)]);
+      const [p, d, c, a] = await Promise.all([
+        api.getPlayer(id),
+        api.defenseState(id),
+        api.cascadeState(id),
+        api.archonsStatus(id),
+      ]);
       setPlayer(p);
       setDefense(d);
+      setCascade(c);
+      setArchonsDefeated(a.archons.filter((x) => x.defeated).length);
+      setArchonsTotal(a.archons.length);
     } catch (e) {
       console.warn("console load failed", e);
     } finally {
@@ -137,6 +149,24 @@ export default function EarthAIConsole() {
           </View>
         )}
 
+        {/* ==== CASCADING SYSTEM DAMAGE ==== */}
+        {cascade && cascade.warnings.length > 0 && (
+          <View style={styles.cascadeCard} testID="cascade-card">
+            <View style={styles.adaptHeader}>
+              <MaterialCommunityIcons name="lightning-bolt-outline" size={16} color={colors.warning} />
+              <Text style={styles.cascadeTitle}>CASCADING SYSTEM FAILURES</Text>
+            </View>
+            {cascade.warnings.map((w, i) => (
+              <Text key={i} style={styles.cascadeLine}>▮ {w}</Text>
+            ))}
+            {cascade.sensor_penalty > 0 && (
+              <Text style={styles.cascadeLine}>
+                ◆ EFFECTIVE SENSOR TIER: {cascade.effective_sensor_tier} (base {cascade.base_sensor_tier})
+              </Text>
+            )}
+          </View>
+        )}
+
         {/* ==== QUICK ACTIONS ==== */}
         <View style={styles.actionsGrid}>
           <ActionCard
@@ -171,6 +201,23 @@ export default function EarthAIConsole() {
             color={colors.warning}
             onPress={() => router.push("/defense/network")}
             testID="cta-network"
+          />
+          <ActionCard
+            icon="crown"
+            label="ARCHONS"
+            sub={`${archonsDefeated}/${archonsTotal} defeated`}
+            color="#B57BFF"
+            onPress={() => router.push("/defense/archons")}
+            testID="cta-archons"
+          />
+          <ActionCard
+            icon="alert-decagram"
+            label="TRIAGE"
+            sub={defense.wave_count >= 3 ? "Multi-front assault" : `Unlocks wave 3 (now ${defense.wave_count})`}
+            color={colors.brandSecondary}
+            disabled={defense.wave_count < 3 || apollyonVictory}
+            onPress={() => router.push("/defense/triage")}
+            testID="cta-triage"
           />
         </View>
 
@@ -392,6 +439,16 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     marginBottom: spacing.md,
   },
+  cascadeCard: {
+    borderWidth: 1,
+    borderColor: colors.warning,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255,176,32,0.06)",
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  cascadeTitle: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.xs, letterSpacing: 1.5, flex: 1 },
+  cascadeLine: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, marginTop: 3, letterSpacing: 0.3 },
   adaptHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.xs },
   adaptTitle: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.xs, letterSpacing: 1.5, flex: 1 },
   adaptRow: { marginTop: 4 },

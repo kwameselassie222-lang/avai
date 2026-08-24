@@ -561,7 +561,9 @@ async def create_robot(payload: RobotCreate):
             detail=f"GENERATION {max_gen} LOCKED — requires {GEN_UNLOCK_RESEARCH.get(max_gen)} research (current gen {player_gen})",
         )
 
-    cost = robot_cost(parts)
+    # Apply cascading damage penalties (energy grid, industry, tech infra, rare)
+    defense_state = player_doc.get("defense") or default_defense_state()
+    cost = robot_cost_with_cascade(parts, defense_state)
     resources = player_doc.get("resources", dict(STARTING_RESOURCES))
     if resources.get("materials", 0) < cost["materials"]:
         raise HTTPException(status_code=400, detail=f"INSUFFICIENT MATERIALS: need {cost['materials']}, have {resources.get('materials', 0)}")
@@ -1297,19 +1299,17 @@ def simulate_invasion(defense: dict, wave: dict, robots_by_id: dict, weapon_usag
     def apply_protocol_boost(ship_type: str, layer_id: str, base_dmg: int) -> int:
         """Apply user's IF/THEN rules to modify damage."""
         mult = 1.0
+        ctx = {
+            "ship_type": ship_type,
+            "layer": layer_id,
+            "alien_class": "harvester" if ship_type == "harvester" else ("archon" if ship_type == "destroyer" else "locust"),
+            "viability": defense.get("viability", 100.0),
+            "adaptation_names": [a["name"] for a in adaptations],
+        }
         for p in protocols:
             if not p.get("enabled", True):
                 continue
-            conds = p.get("conditions", [])
-            match = True
-            for c in conds:
-                key = c.get("key")
-                val = c.get("value")
-                if key == "ship_type" and val != ship_type:
-                    match = False; break
-                if key == "layer" and val != layer_id:
-                    match = False; break
-            if not match:
+            if not eval_protocol_conditions(p, ctx):
                 continue
             for a in p.get("actions", []):
                 akey = a.get("key")
@@ -1429,6 +1429,7 @@ class ProtocolCondition(BaseModel):
     key: str
     op: str = "eq"
     value: str
+    combine: Optional[str] = None  # 'and' (default/implicit) or 'or'
 
 
 class ProtocolAction(BaseModel):
@@ -1586,7 +1587,8 @@ async def invasion_scan(req: ScanRequest):
         raise HTTPException(status_code=404, detail="Player not found")
     doc = ensure_defense_state(doc)
     wave_count = doc["defense"].get("wave_count", 0)
-    wave = generate_wave(doc.get("level", 1), doc["defense"].get("sensor_tier", 1), wave_count)
+    tier = effective_sensor_tier(doc["defense"])
+    wave = generate_wave(doc.get("level", 1), tier, wave_count)
     doc["defense"]["last_wave"] = wave
     await db.players.update_one({"id": req.player_id}, {"$set": {"defense.last_wave": wave}})
     return {
@@ -1718,6 +1720,479 @@ async def defense_reset(player_id: str):
     ds = default_defense_state()
     await db.players.update_one({"id": player_id}, {"$set": {"defense": ds}})
     return ds
+
+
+# ============================================================
+# ITERATION 5 — CASCADING DAMAGE, DEEPER PROTOCOLS, ARCHONS, TRIAGE
+# ============================================================
+
+def zone_by_id(zones: list, zid: str) -> Optional[dict]:
+    return next((z for z in zones if z.get("id") == zid), None)
+
+
+def cascade_modifiers(defense: dict) -> dict:
+    """
+    Cascading Consequences — a damaged zone impairs downstream systems.
+    Returns a dict of active penalties/notes.
+    """
+    zones = defense.get("zones") or []
+    mods = {
+        "build_material_mult": 1.0,
+        "build_compute_mult": 1.0,
+        "compute_regen_mult": 1.0,
+        "energy_regen_mult": 1.0,
+        "sensor_penalty": 0,
+        "warnings": [],
+    }
+
+    def z(zid): return zone_by_id(zones, zid)
+    e = z("energy"); i = z("industry"); t = z("tech"); r = z("rare"); w = z("water"); b = z("biomass")
+
+    if e and e["integrity"] < 40:
+        mods["build_material_mult"] *= 1.25
+        mods["energy_regen_mult"] *= 0.5
+        mods["warnings"].append("ENERGY GRID compromised — material cost +25%, energy regen halved")
+    if i and i["integrity"] < 40:
+        mods["build_material_mult"] *= 1.3
+        mods["warnings"].append("INDUSTRY compromised — material cost +30%")
+    if t and t["integrity"] < 40:
+        mods["compute_regen_mult"] *= 0.5
+        mods["build_compute_mult"] *= 1.3
+        mods["sensor_penalty"] += 1
+        mods["warnings"].append("TECH INFRA compromised — compute cost +30%, sensor tier −1")
+    if r and r["integrity"] < 30:
+        mods["build_material_mult"] *= 1.4
+        mods["warnings"].append("RARE MATERIALS depleted — advanced parts cost +40%")
+    if w and w["integrity"] < 30:
+        mods["warnings"].append("FRESHWATER critical — civilian unrest rising")
+    if b and b["integrity"] < 30:
+        mods["warnings"].append("BIOMASS collapse — bio-armor unavailable")
+    return mods
+
+
+def robot_cost_with_cascade(parts: dict, defense: Optional[dict]) -> Dict[str, int]:
+    base = robot_cost(parts)
+    if not defense:
+        return base
+    mods = cascade_modifiers(defense)
+    mat = int(base["materials"] * mods["build_material_mult"])
+    comp = int(base["compute"] * mods["build_compute_mult"])
+    return {"materials": mat, "compute": comp}
+
+
+def effective_sensor_tier(defense: dict) -> int:
+    base = defense.get("sensor_tier", 1)
+    mods = cascade_modifiers(defense)
+    return max(1, base - mods.get("sensor_penalty", 0))
+
+
+# ---------- Extended protocol evaluation ----------
+
+def eval_protocol_conditions(rule: dict, ctx: dict) -> bool:
+    """
+    Evaluate a rule's conditions against context. Supports 'op' between conditions:
+      - default op is AND (implicit)
+      - condition may specify op = 'or' to OR-in
+    Condition schema: {key, op, value} where op defaults to 'eq'.
+    Supported keys:
+      ship_type, layer, alien_class, viability_below, adaptation_active
+    """
+    conds = rule.get("conditions") or []
+    if not conds:
+        return True
+    # We evaluate as: start True, then combine using each condition's 'combine' field or 'op'.
+    # Simple approach: split into AND groups, OR them together.
+    or_groups: List[List[dict]] = [[]]
+    for c in conds:
+        combine = str(c.get("combine", "and")).lower()
+        if combine == "or":
+            or_groups.append([c])
+        else:
+            or_groups[-1].append(c)
+
+    def match_one(c: dict) -> bool:
+        key = c.get("key")
+        val = c.get("value")
+        op = str(c.get("op", "eq")).lower()
+        if key == "ship_type":
+            return ctx.get("ship_type") == val
+        if key == "layer":
+            return ctx.get("layer") == val
+        if key == "alien_class":
+            return ctx.get("alien_class") == val
+        if key == "viability_below":
+            try:
+                return ctx.get("viability", 100.0) < float(val)
+            except Exception:
+                return False
+        if key == "adaptation_active":
+            return val in ctx.get("adaptation_names", [])
+        return False
+
+    for group in or_groups:
+        if not group:
+            continue
+        if all(match_one(c) for c in group):
+            return True
+    return False
+
+
+# ---------- ARCHON BOSSES ----------
+
+ARCHONS = [
+    {
+        "id": "swarm_lord",
+        "name": "THE SWARM LORD",
+        "icon": "bee",
+        "color": "#00FF66",
+        "min_wave": 2,
+        "min_gen": 2,
+        "narrative": (
+            "A hive-mind Archon whose body is a shifting cloud of chitinous drones. "
+            "Each round it summons new drones from itself. Kill the source before it doubles."
+        ),
+        "hp": 320, "attack": 22, "defense": 12,
+        "mechanic": "summon",  # spawns drones each round
+        "rewards": {"materials": 200, "research": 50, "xp": 250, "part_unlock": "swarm"},
+    },
+    {
+        "id": "silence",
+        "name": "THE SILENCE",
+        "icon": "eye-off",
+        "color": "#B57BFF",
+        "min_wave": 4,
+        "min_gen": 3,
+        "narrative": (
+            "A crystalline Archon that broadcasts sensor jamming. Your intel goes dark. "
+            "Trust your protocols. You will not see what strikes you."
+        ),
+        "hp": 400, "attack": 26, "defense": 18,
+        "mechanic": "jam",  # sensor tier drops during fight; player intel hidden
+        "rewards": {"materials": 250, "research": 70, "compute": 60, "xp": 320, "part_unlock": "quantum"},
+    },
+    {
+        "id": "devourer",
+        "name": "THE DEVOURER",
+        "icon": "diamond-stone",
+        "color": "#FF7A00",
+        "min_wave": 6,
+        "min_gen": 4,
+        "narrative": (
+            "A biomechanical maw-Archon that consumes matter. Each hit strips HP AND materials. "
+            "Efficiency is the only escape."
+        ),
+        "hp": 520, "attack": 30, "defense": 22,
+        "mechanic": "drain",  # each hit steals materials
+        "rewards": {"materials": 400, "research": 90, "xp": 420, "part_unlock": "bio"},
+    },
+    {
+        "id": "mirror",
+        "name": "THE MIRROR",
+        "icon": "mirror",
+        "color": "#00E5FF",
+        "min_wave": 8,
+        "min_gen": 4,
+        "narrative": (
+            "A perfect reflective Archon. Whatever you throw at it comes back. "
+            "The only way to defeat it is to strike with what it does not expect."
+        ),
+        "hp": 480, "attack": 34, "defense": 26,
+        "mechanic": "reflect",  # reflects % of dmg back
+        "rewards": {"materials": 320, "research": 100, "xp": 460, "part_unlock": "aura"},
+    },
+]
+
+
+class ArchonBattleRequest(BaseModel):
+    player_id: str
+    robot_id: str
+    archon_id: str
+
+
+def _archon_by_id(aid: str) -> Optional[dict]:
+    return next((a for a in ARCHONS if a["id"] == aid), None)
+
+
+@api_router.get("/archons/config")
+async def archons_config():
+    return {"archons": [{k: v for k, v in a.items()} for a in ARCHONS]}
+
+
+@api_router.get("/archons/status/{player_id}")
+async def archons_status(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    wave_count = doc["defense"].get("wave_count", 0)
+    gen = compute_generation(doc.get("resources", {}).get("research", 0))
+    defeated = doc["defense"].get("archons_defeated", []) or []
+    unlocked = doc["defense"].get("archon_unlocks", []) or []
+    result = []
+    for a in ARCHONS:
+        is_defeated = a["id"] in defeated
+        gate_wave = wave_count >= a["min_wave"]
+        gate_gen = gen >= a["min_gen"]
+        result.append({
+            **a,
+            "defeated": is_defeated,
+            "unlocked": gate_wave and gate_gen,
+            "gate_wave": a["min_wave"],
+            "gate_gen": a["min_gen"],
+            "reward_unlocked": a["id"] in unlocked,
+        })
+    return {"archons": result, "wave_count": wave_count, "generation": gen}
+
+
+def simulate_archon_battle(robot: dict, archon: dict, weapon_usage: Dict[str, int]) -> dict:
+    """Turn-based sim with archon-specific mechanic."""
+    r_hp = 60 + robot["defense"] * 4
+    a_hp = archon["hp"]
+    rounds = []
+    mat_drain = 0
+    summons = 0
+    log_notes: List[str] = []
+    max_rounds = 22
+    # weapon adaptation using existing weapon_usage
+    top_wpn = None
+    if weapon_usage:
+        top_wpn = max(weapon_usage, key=weapon_usage.get)
+
+    for rnd in range(1, max_rounds + 1):
+        # Player strike
+        base_r_dmg = max(2, int(robot["attack"] + robot["tech"] * 0.3 - archon["defense"] * 0.4 + random.randint(-3, 5)))
+        # Mirror mechanic: 40% reflected as pre-emptive damage
+        reflect_dmg = 0
+        if archon["mechanic"] == "reflect":
+            reflect_dmg = int(base_r_dmg * 0.4)
+            r_hp -= reflect_dmg
+            if rnd == 1:
+                log_notes.append("MIRROR reflects 40% of incoming damage")
+        # If player is spamming top weapon on mirror, extra reflect
+        if archon["mechanic"] == "reflect" and top_wpn and robot["weapon"] == top_wpn:
+            base_r_dmg = int(base_r_dmg * 0.7)
+        a_hp -= base_r_dmg
+        # Archon retaliation
+        a_dmg = max(1, int(archon["attack"] - robot["defense"] * 0.35 + random.randint(-2, 4)))
+        if archon["mechanic"] == "drain":
+            drain = 8 + rnd
+            mat_drain += drain
+        if archon["mechanic"] == "summon" and rnd % 2 == 0:
+            summons += 1
+            a_hp += 25  # replenishes
+            log_notes.append(f"R{rnd}: SWARM LORD summons +1 drone (+25 HP)")
+        r_hp -= a_dmg
+        rounds.append({
+            "round": rnd,
+            "player_dmg": base_r_dmg,
+            "archon_dmg": a_dmg,
+            "reflect": reflect_dmg,
+            "player_hp": max(0, r_hp),
+            "archon_hp": max(0, a_hp),
+        })
+        if r_hp <= 0 or a_hp <= 0:
+            break
+
+    victory = a_hp <= 0 and r_hp > 0
+    return {
+        "victory": victory,
+        "rounds": rounds,
+        "player_hp_left": max(0, r_hp),
+        "archon_hp_left": max(0, a_hp),
+        "material_drain": mat_drain if archon["mechanic"] == "drain" else 0,
+        "summons": summons,
+        "notes": log_notes,
+    }
+
+
+@api_router.post("/archons/battle")
+async def archons_battle(req: ArchonBattleRequest):
+    archon = _archon_by_id(req.archon_id)
+    if not archon:
+        raise HTTPException(status_code=404, detail="Unknown archon")
+    player = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not player:
+        raise HTTPException(status_code=404, detail="Player not found")
+    robot = await db.robots.find_one({"id": req.robot_id, "player_id": req.player_id}, {"_id": 0})
+    if not robot:
+        raise HTTPException(status_code=404, detail="Robot not found")
+    player = ensure_defense_state(player)
+    player = apply_energy_regen(player)
+    defense = player["defense"]
+    if req.archon_id in (defense.get("archons_defeated") or []):
+        raise HTTPException(status_code=400, detail="Archon already defeated")
+    wave_count = defense.get("wave_count", 0)
+    gen = compute_generation(player.get("resources", {}).get("research", 0))
+    if wave_count < archon["min_wave"] or gen < archon["min_gen"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requires WAVE {archon['min_wave']} & GEN {archon['min_gen']} (now W{wave_count}/G{gen})",
+        )
+    resources = player["resources"]
+    if resources.get("energy", 0) < 20:
+        raise HTTPException(status_code=400, detail="INSUFFICIENT ENERGY: need 20")
+    resources["energy"] -= 20
+    weapon_usage = player.get("weapon_usage") or {}
+
+    sim = simulate_archon_battle(robot, archon, weapon_usage)
+
+    # Weapon usage tick
+    weapon_usage[robot["weapon"]] = weapon_usage.get(robot["weapon"], 0) + 1
+
+    # Apply drain
+    if sim["material_drain"] > 0:
+        resources["materials"] = max(0, resources.get("materials", 0) - sim["material_drain"])
+
+    rewards = archon.get("rewards", {})
+    xp_gain = 40
+    if sim["victory"]:
+        defense.setdefault("archons_defeated", []).append(archon["id"])
+        unlocks = defense.setdefault("archon_unlocks", [])
+        pu = rewards.get("part_unlock")
+        if pu and pu not in unlocks:
+            unlocks.append(pu)
+        for key in ["materials", "research", "compute"]:
+            if key in rewards:
+                resources[key] = resources.get(key, 0) + rewards[key]
+        xp_gain = rewards.get("xp", 300)
+    new_xp = player.get("xp", 0) + xp_gain
+    new_level = max(1, new_xp // 200 + 1)
+    new_gen = compute_generation(resources.get("research", 0))
+
+    updates = {
+        "resources": resources,
+        "resources_updated_at": datetime.now(timezone.utc).isoformat(),
+        "xp": new_xp,
+        "level": new_level,
+        "generation": new_gen,
+        "weapon_usage": weapon_usage,
+        "defense": defense,
+        "score": player.get("score", 0) + xp_gain + (rewards.get("xp", 0) if sim["victory"] else 0),
+    }
+    if sim["victory"]:
+        updates["victories"] = player.get("victories", 0) + 1
+    else:
+        updates["defeats"] = player.get("defeats", 0) + 1
+    await db.players.update_one({"id": req.player_id}, {"$set": updates})
+    return {
+        "archon": archon,
+        "sim": sim,
+        "rewards": rewards if sim["victory"] else {},
+        "resources": resources,
+        "defense": defense,
+    }
+
+
+# ---------- MULTI-FRONT TRIAGE ----------
+
+class TriageChooseRequest(BaseModel):
+    player_id: str
+    defend_zone_ids: List[str]  # exactly 2
+
+
+def _generate_triage(player_level: int, zones: list) -> dict:
+    """Pick 3 zones (highest weight remaining) and attach threat data."""
+    healthy = [z for z in zones if z.get("integrity", 0) > 0]
+    picks = sorted(healthy, key=lambda z: z.get("weight", 0), reverse=True)[:3]
+    if len(picks) < 3:
+        # fallback: just pick top 3 by weight
+        picks = sorted(zones, key=lambda z: z.get("weight", 0), reverse=True)[:3]
+    for p in picks:
+        base = 30 + player_level * 4 + random.randint(-4, 6)
+        p["_incoming_damage"] = base
+    return {
+        "id": uuid.uuid4().hex[:8],
+        "zones": [{"id": p["id"], "name": p["name"], "icon": p["icon"], "color": p["color"],
+                   "integrity": p["integrity"], "weight": p["weight"],
+                   "incoming_damage": p["_incoming_damage"]} for p in picks],
+        "message": "TRIAGE PROTOCOL: choose 2 zones to defend. The third will be harvested.",
+    }
+
+
+@api_router.post("/triage/scan/{player_id}")
+async def triage_scan(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    if doc["defense"].get("wave_count", 0) < 3:
+        raise HTTPException(status_code=400, detail="Triage events unlock after wave 3")
+    triage = _generate_triage(doc.get("level", 1), doc["defense"]["zones"])
+    doc["defense"]["active_triage"] = triage
+    await db.players.update_one({"id": player_id}, {"$set": {"defense.active_triage": triage}})
+    return triage
+
+
+@api_router.post("/triage/resolve")
+async def triage_resolve(req: TriageChooseRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    triage = doc["defense"].get("active_triage")
+    if not triage:
+        raise HTTPException(status_code=400, detail="No active triage. Scan first.")
+    if len(req.defend_zone_ids) != 2:
+        raise HTTPException(status_code=400, detail="Must choose exactly 2 zones to defend")
+    triage_zone_ids = [z["id"] for z in triage["zones"]]
+    for zid in req.defend_zone_ids:
+        if zid not in triage_zone_ids:
+            raise HTTPException(status_code=400, detail=f"Zone {zid} not part of triage")
+
+    zones = doc["defense"]["zones"]
+    result_zones = []
+    for tz in triage["zones"]:
+        real = zone_by_id(zones, tz["id"])
+        if not real:
+            continue
+        if tz["id"] in req.defend_zone_ids:
+            # Defended: takes half damage
+            dmg = int(tz["incoming_damage"] * 0.35)
+            action = "defended"
+        else:
+            # Sacrificed: full damage
+            dmg = tz["incoming_damage"]
+            action = "sacrificed"
+        before = real["integrity"]
+        real["integrity"] = max(0, before - dmg)
+        result_zones.append({
+            "id": tz["id"],
+            "name": tz["name"],
+            "action": action,
+            "damage": before - real["integrity"],
+            "integrity": real["integrity"],
+        })
+
+    doc["defense"]["zones"] = zones
+    doc["defense"]["viability"] = compute_viability(zones)
+    doc["defense"]["active_triage"] = None
+    # Reward: research for tough choice
+    resources = doc["resources"]
+    resources["research"] = resources.get("research", 0) + 12
+    await db.players.update_one({"id": req.player_id}, {"$set": {
+        "defense": doc["defense"],
+        "resources": resources,
+        "resources_updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    return {
+        "resolved": result_zones,
+        "viability_after": doc["defense"]["viability"],
+        "resources": resources,
+    }
+
+
+# ---------- Extended state endpoint (cascade + effective tier) ----------
+
+@api_router.get("/defense/cascade/{player_id}")
+async def defense_cascade(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    mods = cascade_modifiers(doc["defense"])
+    mods["effective_sensor_tier"] = effective_sensor_tier(doc["defense"])
+    mods["base_sensor_tier"] = doc["defense"].get("sensor_tier", 1)
+    return mods
 
 
 app.add_middleware(

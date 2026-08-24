@@ -66,7 +66,7 @@ export default function ProtocolsScreen() {
   const addCondition = (idx: number) => {
     const r = rules[idx];
     updateRule(idx, {
-      conditions: [...(r.conditions || []), { key: "layer", op: "eq", value: "orbital" }],
+      conditions: [...(r.conditions || []), { key: "layer", op: "eq", value: "orbital", combine: "and" }],
     });
   };
 
@@ -140,31 +140,46 @@ export default function ProtocolsScreen() {
 
             <Text style={styles.blockLabel}>IF</Text>
             {(r.conditions || []).map((c, cIdx) => (
-              <View key={cIdx} style={styles.pillRow}>
-                <ChipSelect
-                  options={PROTOCOL_CONDITIONS.map((p) => ({ label: p.label, value: p.key }))}
-                  value={c.key}
-                  onChange={(v) => setCondition(idx, cIdx, { key: v, value: PROTOCOL_CONDITIONS.find((p) => p.key === v)?.values[0] || "" })}
-                />
-                <Text style={styles.eq}>=</Text>
-                <ChipSelect
-                  options={
-                    (PROTOCOL_CONDITIONS.find((p) => p.key === c.key)?.values || []).map((v) => ({
-                      label: labelFor(c.key, v),
-                      value: v,
-                    }))
-                  }
-                  value={c.value}
-                  onChange={(v) => setCondition(idx, cIdx, { value: v })}
-                />
-                <Pressable onPress={() => removeCondition(idx, cIdx)}>
-                  <MaterialCommunityIcons name="minus-circle-outline" size={16} color={colors.brandSecondary} />
-                </Pressable>
+              <View key={cIdx}>
+                {cIdx > 0 && (
+                  <Pressable
+                    onPress={() =>
+                      setCondition(idx, cIdx, { combine: (c.combine || "and") === "and" ? "or" : "and" })
+                    }
+                    style={styles.combinePill}
+                    testID={`combine-${idx}-${cIdx}`}
+                  >
+                    <Text style={styles.combineText}>
+                      {((c.combine || "and") as string).toUpperCase()}
+                    </Text>
+                  </Pressable>
+                )}
+                <View style={styles.pillRow}>
+                  <ChipSelect
+                    options={PROTOCOL_CONDITIONS.map((p) => ({ label: p.label, value: p.key }))}
+                    value={c.key}
+                    onChange={(v) => setCondition(idx, cIdx, { key: v, value: PROTOCOL_CONDITIONS.find((p) => p.key === v)?.values[0] || "" })}
+                  />
+                  <Text style={styles.eq}>=</Text>
+                  <ChipSelect
+                    options={
+                      (PROTOCOL_CONDITIONS.find((p) => p.key === c.key)?.values || []).map((v) => ({
+                        label: labelFor(c.key, v),
+                        value: v,
+                      }))
+                    }
+                    value={c.value}
+                    onChange={(v) => setCondition(idx, cIdx, { value: v })}
+                  />
+                  <Pressable onPress={() => removeCondition(idx, cIdx)}>
+                    <MaterialCommunityIcons name="minus-circle-outline" size={16} color={colors.brandSecondary} />
+                  </Pressable>
+                </View>
               </View>
             ))}
             <Pressable onPress={() => addCondition(idx)} style={styles.addBtn}>
               <MaterialCommunityIcons name="plus" size={12} color={colors.brandPrimary} />
-              <Text style={styles.addText}>AND</Text>
+              <Text style={styles.addText}>AND / OR</Text>
             </Pressable>
 
             <Text style={styles.blockLabel}>THEN</Text>
@@ -214,6 +229,9 @@ export default function ProtocolsScreen() {
 function labelFor(key: string, value: string) {
   if (key === "ship_type") return (SHIP_META[value]?.label || value).toUpperCase();
   if (key === "layer") return (LAYER_META[value]?.name || value).toUpperCase();
+  if (key === "alien_class") return value.toUpperCase();
+  if (key === "viability_below") return `< ${value}%`;
+  if (key === "adaptation_active") return value;
   return value.toUpperCase();
 }
 
@@ -287,6 +305,22 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,229,255,0.08)",
   },
   chipText: { fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: fontSize.xs, letterSpacing: 1 },
+  combinePill: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: colors.warning,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginVertical: 2,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255,176,32,0.08)",
+  },
+  combineText: {
+    fontFamily: fonts.displayBold,
+    color: colors.warning,
+    fontSize: 10,
+    letterSpacing: 1.5,
+  },
   addBtn: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", marginTop: 2 },
   addText: { fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: fontSize.xs, letterSpacing: 1.2 },
 

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 5 backend testing complete. 27/27 pytest tests PASSED covering all new endpoints: cascade modifiers, archon config/status/battle, triage scan/resolve, and deeper protocol evaluator. Found and fixed one real backend bug: the ProtocolCondition Pydantic model was missing the `combine` field, causing OR-group logic to be silently stripped on save (eval_protocol_conditions would never see combine='or'). Fix applied to /app/backend/server.py (added `combine: Optional[str] = None`).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/defense/protocols",
+        "issue": "ProtocolCondition model was missing `combine` field; Pydantic silently stripped it, so 'or' grouping never persisted and eval_protocol_conditions() OR logic never fired. FIXED by adding `combine: Optional[str] = None` to ProtocolCondition (server.py). Consider also adding similar tolerance for future condition-schema growth (e.g. ConfigDict(extra='allow'))."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/test_reports/pytest/iteration5_results.xml"
+  ],
+  "action_items": [
+    "Verify the ProtocolCondition.combine fix (already applied) by running invasion/engage with two rules using combine='or' and confirm damage multiplier fires when either branch matches.",
+    "Consider validating combine values on save: only accept 'and'/'or' (currently anything else falls back to AND).",
+    "Consider adding a POST /api/defense/reset endpoint audit — not tested here; keep in mind if archons_defeated should be cleared on reset."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2211 lines — well over the 700-line guideline. Recommend splitting into modules: defense.py, archons.py, triage.py, apollyon.py, regions.py.",
+    "eval_protocol_conditions supports 'combine' on individual conditions but tolerates unknown values as AND (silent fallback). Consider explicit enum validation.",
+    "generate_wave uses random.random() with sensor tier fog-of-war, but tests only sample once; flakiness could hide stealth-detection bugs. Consider deterministic seed in tests if instability arises.",
+    "apply_protocol_boost hardcodes alien_class mapping ('harvester' for harvester ship, 'archon' for destroyer, else 'locust'). This mapping is arbitrary and diverges from the real ALIEN_CLASS_DATA taxonomy; consider deriving alien_class from wave metadata.",
+    "In simulate_archon_battle, mirror mechanic applies reflect_dmg BEFORE archon retaliates and can drive r_hp negative silently; no guard prevents robot death from reflect alone being unnoticed in the round record's reflect field. Currently OK, but log clarity could improve."
+  ],
+  "updated_files": [
+    "/app/backend/server.py  (added `combine: Optional[str] = None` to ProtocolCondition)",
+    "/app/backend/tests/test_iteration5.py  (new)"
+  ],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "not tested"},
+  "seed_data_creation": "Tests use pymongo to directly seed wave_count, sensor_tier, archons_defeated, zone integrity, and resources on freshly initialized players. Each test creates its own unique player codename (IT5_<hex>) — no shared fixture state; no cleanup needed but test docs remain in DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 5 (cascade + archons + triage + deeper protocols) backend fully green. One coding-level fix was applied inline (ProtocolCondition.combine). Legacy iteration 4 tests were NOT re-run per request. For iteration 6+, reuse /app/backend/tests/test_iteration5.py patterns — seeding via pymongo on freshly-init'd players is the fastest way to reach late-game state.",
+  "rca_of_issue": "BUG (fixed): POST /api/defense/protocols accepted a payload with condition['combine']='or', echoed it back in the response BODY because it returned the raw request payload's serialized form, BUT the Pydantic ProtocolCondition model dropped 'combine' during model_dump(); the persisted document in Mongo therefore lacked 'combine'. On subsequent /defense/state read, the field was missing → eval_protocol_conditions() defaulted every condition to AND, silently disabling the OR-grouping feature. RCA: missing Optional field on the Pydantic model. Reproduction: save any protocol with a second condition combine='or', then GET /defense/state and inspect protocols[0].conditions[1] — combine is absent. Mitigation: added `combine: Optional[str] = None` to ProtocolCondition and restarted backend. Re-verified with test_protocol_save_and_or_combine (now green)."
+}

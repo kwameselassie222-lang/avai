@@ -75,3 +75,31 @@ Massive gameplay identity shift. The player is now Earth's Superintelligence, de
 ## Integrations
 - Gemini 3 Flash via Emergent LLM key for AI briefings and Apollyon endings
 - MongoDB for persistence
+
+## Iteration 5 (Archons + Cascade + Triage + Deeper Protocols)
+
+- **4 Archon Mini-Bosses** with signature mechanics:
+  - THE SWARM LORD (W2/G2) — summons +1 drone every 2 rounds (+25 HP). Unlocks `swarm` chassis
+  - THE SILENCE (W4/G3) — sensor jamming during fight. Unlocks `quantum` sensor
+  - THE DEVOURER (W6/G4) — drains player materials each hit. Unlocks `bio` armor
+  - THE MIRROR (W8/G4) — reflects 40% incoming damage. Unlocks `aura` field
+- **Cascading Damage** — Zone integrity dictates system health:
+  - Energy Grid <40% → build cost +25%, energy regen halved
+  - Industry <40% → build cost +30%
+  - Tech Infra <40% → compute cost +30%, sensor tier −1
+  - Rare Materials <30% → advanced part cost +40%
+  - Robot creation (`POST /api/robots`) applies these multipliers live
+- **Multi-Front Triage** — after wave 3, 3 zones attacked simultaneously. Player picks 2 to defend at 35% damage; the sacrificed zone takes full damage. Awards +12 research
+- **Deeper Protocol Logic**:
+  - `combine: 'and' | 'or'` between conditions
+  - New condition keys: `alien_class`, `viability_below`, `adaptation_active`
+  - Evaluated as OR-groups of AND-clauses
+
+## New Endpoints (iteration 5)
+- `GET /api/defense/cascade/{id}` → active penalties + effective sensor tier
+- `GET /api/archons/config`, `GET /api/archons/status/{id}`, `POST /api/archons/battle`
+- `POST /api/triage/scan/{id}`, `POST /api/triage/resolve`
+
+## New Screens (iteration 5)
+- `/defense/archons` — Archon list, cinematic engage, round log with reflects/summons/drain
+- `/defense/triage` — 3-zone attack, pick 2 to defend, outcome report
