@@ -9,6 +9,7 @@ import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api, storage, DefenseState, ScanResult, EngageResult } from "@/src/api";
 import { SHIP_META, LAYER_META } from "@/src/defense-meta";
 import { TerminalHeader, HudButton } from "@/src/components/hud";
+import { TransmissionModal } from "@/src/components/transmission-modal";
 
 type Phase = "idle" | "scanning" | "scanned" | "engaging" | "result";
 
@@ -19,6 +20,8 @@ export default function InvasionScreen() {
   const [result, setResult] = useState<EngageResult | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
   const [busy, setBusy] = useState(false);
+  const [showBonusTx, setShowBonusTx] = useState(false);
+  const [bonusClaimed, setBonusClaimed] = useState(false);
 
   const loadState = useCallback(async () => {
     const id = await storage.getPlayerId();
@@ -226,6 +229,12 @@ export default function InvasionScreen() {
             })}
 
             <View style={{ height: 16 }} />
+            {result.outcome === "victory" && !bonusClaimed && (
+              <Pressable onPress={() => setShowBonusTx(true)} style={styles.bonusBtn} testID="btn-double-rewards">
+                <MaterialCommunityIcons name="radio-tower" size={14} color={colors.warning} />
+                <Text style={styles.bonusText}>ACCESS SPONSOR TRANSMISSION — DOUBLE REWARDS</Text>
+              </Pressable>
+            )}
             <HudButton
               label="▮ RETURN TO CONSOLE"
               variant="ghost"
@@ -234,6 +243,12 @@ export default function InvasionScreen() {
           </>
         )}
       </ScrollView>
+      <TransmissionModal
+        visible={showBonusTx}
+        slot="double_rewards"
+        onClose={() => setShowBonusTx(false)}
+        onGranted={() => { setBonusClaimed(true); setShowBonusTx(false); }}
+      />
     </SafeAreaView>
   );
 }
@@ -311,4 +326,12 @@ const styles = StyleSheet.create({
   },
   logLayer: { fontFamily: fonts.displayBold, fontSize: fontSize.xs, letterSpacing: 1.2, width: 100 },
   logDetail: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, flex: 1 },
+  bonusBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    borderWidth: 1, borderColor: colors.warning,
+    paddingVertical: spacing.sm, borderRadius: radius.md,
+    marginBottom: spacing.md,
+    backgroundColor: "rgba(255,176,32,0.08)",
+  },
+  bonusText: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.xs, letterSpacing: 1.5 },
 });

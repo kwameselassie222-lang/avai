@@ -2380,6 +2380,368 @@ async def zone_repair(req: ZoneRepairRequest):
     return {"repaired": actual, "zone": z, "resources": resources, "viability": doc["defense"]["viability"]}
 
 
+# ============================================================
+# ITERATION 7 — MONETIZATION (mocked flows, native-build ready)
+# ============================================================
+
+SEASONS = [
+    {
+        "id": "s1",
+        "name": "SEASON 1 // THE ARRIVAL",
+        "narrative": "Humanity activates Earth's AI defense system. The first signals from Apollyon reach the outer belt.",
+        "tiers": 20,
+        "xp_per_tier": 100,
+    },
+]
+
+STORE_CATALOG = {
+    "featured": [
+        {"id": "starter_pack", "kind": "bundle", "name": "Commander Starter Pack",
+         "price_usd": 3.99, "grants": {"materials": 500, "research": 60, "ai_cores": 20, "cosmetic": "prototype_armor"}},
+        {"id": "remove_ads", "kind": "removeads", "name": "Earth Defense License — Remove Ads",
+         "price_usd": 6.99, "grants": {"remove_ads": True}},
+        {"id": "season_pass_s1", "kind": "season_pass", "name": "Season 1 Premium Pass",
+         "price_usd": 7.99, "grants": {"season_pass": "s1"}},
+    ],
+    "cosmetics": [
+        {"id": "prototype_armor",   "kind": "cosmetic", "name": "Prototype Armor Skin",   "price_ai_cores": 40,  "grants": {"cosmetic": "prototype_armor"}},
+        {"id": "quantum_armor",     "kind": "cosmetic", "name": "Quantum Armor Skin",     "price_ai_cores": 60,  "grants": {"cosmetic": "quantum_armor"}},
+        {"id": "seraph_armor",      "kind": "cosmetic", "name": "Seraph Armor Skin",      "price_ai_cores": 120, "grants": {"cosmetic": "seraph_armor"}},
+        {"id": "alien_hybrid",      "kind": "cosmetic", "name": "Alien-Hybrid Armor",     "price_ai_cores": 150, "grants": {"cosmetic": "alien_hybrid"}},
+        {"id": "apollyon_inspired", "kind": "cosmetic", "name": "Apollyon-Inspired Design", "price_ai_cores": 200, "grants": {"cosmetic": "apollyon_inspired"}},
+    ],
+    "resource_packs": [
+        {"id": "mat_pack_small",  "kind": "resources", "name": "Materials Cache · Small",  "price_ai_cores": 15,  "grants": {"materials": 200}},
+        {"id": "mat_pack_large",  "kind": "resources", "name": "Materials Cache · Large",  "price_ai_cores": 60,  "grants": {"materials": 1000}},
+        {"id": "research_boost",  "kind": "resources", "name": "Research Boost",           "price_ai_cores": 40,  "grants": {"research": 100}},
+        {"id": "cores_bundle_s",  "kind": "currency",  "name": "AI Cores · 25",            "price_usd": 1.99,     "grants": {"ai_cores": 25}},
+        {"id": "cores_bundle_m",  "kind": "currency",  "name": "AI Cores · 100",           "price_usd": 6.99,     "grants": {"ai_cores": 100}},
+        {"id": "cores_bundle_l",  "kind": "currency",  "name": "AI Cores · 300",           "price_usd": 17.99,    "grants": {"ai_cores": 300, "bonus": "Best value"}},
+    ],
+    "expansions": [
+        {"id": "exp_mars",     "kind": "expansion", "name": "Defense of Mars",     "price_usd": 4.99,  "status": "coming_soon", "grants": {}},
+        {"id": "exp_moon",     "kind": "expansion", "name": "Moon Colony Campaign","price_usd": 6.99,  "status": "coming_soon", "grants": {}},
+        {"id": "exp_apollyon", "kind": "expansion", "name": "Apollyon's Origin",   "price_usd": 9.99,  "status": "coming_soon", "grants": {}},
+    ],
+}
+
+
+# Rewarded-ad ("Sponsored Transmission") slots
+TRANSMISSIONS = {
+    "alien_tech": {
+        "title": "ALIEN TECHNOLOGY RECOVERED",
+        "cta": "Analyze Transmission",
+        "cooldown_sec": 60,
+        "grants": {"research": 20, "materials": 60, "ai_cores": 2},
+    },
+    "emergency_energy": {
+        "title": "PLANETARY ENERGY RESERVES CRITICAL",
+        "cta": "Request Emergency Support",
+        "cooldown_sec": 300,
+        "grants": {"energy": 60},
+    },
+    "double_rewards": {
+        "title": "PLANETARY DEFENSE SUCCESSFUL",
+        "cta": "Access Sponsor Transmission",
+        "cooldown_sec": 30,
+        "grants": {"materials": 80, "research": 20, "ai_cores": 3},
+    },
+    "emergency_repair": {
+        "title": "DEFENSE GRID COMPROMISED",
+        "cta": "Recover Alien Intelligence",
+        "cooldown_sec": 180,
+        "grants": {"layer_repair_pct": 25},  # frontend-driven layer choice
+    },
+}
+
+
+class PurchaseRequest(BaseModel):
+    player_id: str
+    item_id: str
+
+
+class TransmissionRequest(BaseModel):
+    player_id: str
+    slot: str  # alien_tech | emergency_energy | double_rewards | emergency_repair
+    context: Optional[Dict[str, Any]] = None
+
+
+def ensure_monetization(player_doc: dict) -> dict:
+    m = player_doc.get("monetization") or {}
+    m.setdefault("ai_cores", 5)          # start with 5 free cores
+    m.setdefault("remove_ads", False)
+    m.setdefault("cosmetics_owned", [])
+    m.setdefault("expansions_owned", [])
+    m.setdefault("season_passes", [])    # ["s1", ...]
+    m.setdefault("season_xp", {})        # {"s1": 320}
+    m.setdefault("season_claimed", {})   # {"s1": [1,2,3]}
+    m.setdefault("transmission_cd", {})  # {"alien_tech": iso_ts}
+    m.setdefault("purchase_log", [])
+    player_doc["monetization"] = m
+    return player_doc
+
+
+def _grant(player_doc: dict, grants: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply a grants dict to the player doc. Returns delta summary."""
+    resources = player_doc.get("resources") or dict(STARTING_RESOURCES)
+    m = player_doc["monetization"]
+    delta = {}
+    for key, val in grants.items():
+        if key in ("energy", "materials", "compute", "research"):
+            resources[key] = resources.get(key, 0) + int(val)
+            if key == "energy":
+                resources[key] = min(resources[key], ENERGY_REGEN_CAP + 40)  # allow transient burst
+            delta[key] = int(val)
+        elif key == "ai_cores":
+            m["ai_cores"] = int(m.get("ai_cores", 0)) + int(val)
+            delta["ai_cores"] = int(val)
+        elif key == "remove_ads":
+            m["remove_ads"] = bool(val)
+            delta["remove_ads"] = True
+        elif key == "cosmetic":
+            if val not in m["cosmetics_owned"]:
+                m["cosmetics_owned"].append(val)
+            delta["cosmetic"] = val
+        elif key == "season_pass":
+            if val not in m["season_passes"]:
+                m["season_passes"].append(val)
+            delta["season_pass"] = val
+        elif key == "expansion":
+            if val not in m["expansions_owned"]:
+                m["expansions_owned"].append(val)
+            delta["expansion"] = val
+        elif key == "layer_repair_pct":
+            # handled by caller (needs layer_id)
+            delta["layer_repair_pct"] = int(val)
+    player_doc["resources"] = resources
+    return delta
+
+
+def _find_store_item(item_id: str) -> Optional[Dict[str, Any]]:
+    for section in STORE_CATALOG.values():
+        for it in section:
+            if it["id"] == item_id:
+                return it
+    return None
+
+
+@api_router.get("/store/catalog")
+async def store_catalog():
+    return STORE_CATALOG
+
+
+@api_router.get("/store/status/{player_id}")
+async def store_status(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_monetization(doc)
+    await db.players.update_one({"id": player_id}, {"$set": {"monetization": doc["monetization"]}})
+    return doc["monetization"]
+
+
+@api_router.post("/store/purchase")
+async def store_purchase(req: PurchaseRequest):
+    """
+    Mock IAP endpoint. On a real device, the client would first complete a
+    RevenueCat/AppStore/GooglePlay purchase and pass the receipt.
+    We simulate success and grant the item.
+    """
+    item = _find_store_item(req.item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Unknown store item")
+    if item.get("status") == "coming_soon":
+        raise HTTPException(status_code=400, detail="Coming soon")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_monetization(doc)
+
+    # AI-cores priced items: deduct cores
+    ai_cost = item.get("price_ai_cores")
+    if ai_cost:
+        if doc["monetization"].get("ai_cores", 0) < ai_cost:
+            raise HTTPException(status_code=400, detail=f"INSUFFICIENT AI CORES: need {ai_cost}")
+        doc["monetization"]["ai_cores"] -= ai_cost
+
+    # Prevent double-buy for permanent items
+    if item["kind"] == "removeads" and doc["monetization"].get("remove_ads"):
+        raise HTTPException(status_code=400, detail="Already purchased")
+    if item["kind"] == "cosmetic" and item["id"] in doc["monetization"].get("cosmetics_owned", []):
+        raise HTTPException(status_code=400, detail="Already owned")
+
+    delta = _grant(doc, item.get("grants", {}))
+    doc["monetization"]["purchase_log"].append({
+        "item_id": item["id"],
+        "at": datetime.now(timezone.utc).isoformat(),
+        "price_usd": item.get("price_usd"),
+        "price_ai_cores": ai_cost,
+    })
+    await db.players.update_one({"id": req.player_id}, {"$set": {
+        "resources": doc["resources"],
+        "monetization": doc["monetization"],
+    }})
+    return {"ok": True, "item": item, "delta": delta, "monetization": doc["monetization"], "resources": doc["resources"]}
+
+
+@api_router.post("/store/transmission")
+async def store_transmission(req: TransmissionRequest):
+    """
+    Simulated rewarded-ad completion. Client is responsible for actually
+    showing the ad on a native build via AdMob/UnityAds. Enforces cooldowns.
+    """
+    slot = TRANSMISSIONS.get(req.slot)
+    if not slot:
+        raise HTTPException(status_code=404, detail="Unknown transmission slot")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_monetization(doc)
+    now = datetime.now(timezone.utc)
+    cd_map = doc["monetization"].get("transmission_cd", {})
+    last_iso = cd_map.get(req.slot)
+    if last_iso:
+        try:
+            last = datetime.fromisoformat(last_iso)
+            remaining = slot["cooldown_sec"] - (now - last).total_seconds()
+            if remaining > 0:
+                raise HTTPException(status_code=429, detail=f"COOLDOWN: {int(remaining)}s remaining")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    delta = _grant(doc, slot["grants"])
+
+    # Handle layer_repair_pct if slot is emergency_repair
+    if req.slot == "emergency_repair":
+        ctx = req.context or {}
+        layer_id = ctx.get("layer_id")
+        if layer_id and layer_id in LAYERS_ORDER and layer_id != "resource_zones":
+            doc = ensure_defense_state(doc)
+            L = doc["defense"]["layers"][layer_id]
+            heal = int(L["max_hp"] * slot["grants"]["layer_repair_pct"] / 100.0)
+            L["hp"] = min(L["max_hp"], L["hp"] + heal)
+            delta["layer"] = layer_id
+            delta["hp_restored"] = heal
+
+    cd_map[req.slot] = now.isoformat()
+    doc["monetization"]["transmission_cd"] = cd_map
+    updates = {
+        "resources": doc["resources"],
+        "monetization": doc["monetization"],
+    }
+    if req.slot == "emergency_repair" and "defense" in doc:
+        updates["defense"] = doc["defense"]
+    await db.players.update_one({"id": req.player_id}, {"$set": updates})
+    return {"ok": True, "slot": req.slot, "delta": delta, "resources": doc["resources"], "monetization": doc["monetization"]}
+
+
+@api_router.get("/season/status/{player_id}")
+async def season_status(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_monetization(doc)
+    seasons = []
+    for s in SEASONS:
+        xp = int(doc["monetization"]["season_xp"].get(s["id"], 0))
+        tier = min(s["tiers"], xp // s["xp_per_tier"])
+        seasons.append({
+            **s,
+            "xp": xp,
+            "tier": tier,
+            "next_tier_at": (tier + 1) * s["xp_per_tier"],
+            "premium_owned": s["id"] in doc["monetization"]["season_passes"],
+            "claimed": doc["monetization"]["season_claimed"].get(s["id"], []),
+        })
+    await db.players.update_one({"id": player_id}, {"$set": {"monetization": doc["monetization"]}})
+    return {"seasons": seasons}
+
+
+class SeasonAddXpRequest(BaseModel):
+    player_id: str
+    season_id: str
+    xp: int
+
+
+@api_router.post("/season/add_xp")
+async def season_add_xp(req: SeasonAddXpRequest):
+    """Grant season XP. Called internally after successful engagements."""
+    if req.xp <= 0:
+        raise HTTPException(status_code=400, detail="XP must be positive")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_monetization(doc)
+    doc["monetization"]["season_xp"][req.season_id] = int(doc["monetization"]["season_xp"].get(req.season_id, 0)) + req.xp
+    await db.players.update_one({"id": req.player_id}, {"$set": {"monetization": doc["monetization"]}})
+    return {"ok": True, "season_id": req.season_id, "new_xp": doc["monetization"]["season_xp"][req.season_id]}
+
+
+class SeasonClaimRequest(BaseModel):
+    player_id: str
+    season_id: str
+    tier: int
+
+
+# Free vs Premium reward tables per tier (indexed 1..20)
+def _season_reward(season_id: str, tier: int, premium: bool) -> Dict[str, Any]:
+    if premium:
+        # Premium tier rewards
+        if tier % 5 == 0:
+            return {"ai_cores": 15, "cosmetic": f"season_{season_id}_t{tier}"}
+        if tier % 3 == 0:
+            return {"materials": 200, "research": 40, "ai_cores": 8}
+        return {"ai_cores": 5, "materials": 100}
+    # Free
+    if tier % 5 == 0:
+        return {"ai_cores": 3, "materials": 200}
+    if tier % 4 == 0:
+        return {"research": 30}
+    return {"materials": 80}
+
+
+@api_router.post("/season/claim")
+async def season_claim(req: SeasonClaimRequest):
+    season = next((s for s in SEASONS if s["id"] == req.season_id), None)
+    if not season:
+        raise HTTPException(status_code=404, detail="Unknown season")
+    if req.tier < 1 or req.tier > season["tiers"]:
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_monetization(doc)
+    xp = int(doc["monetization"]["season_xp"].get(req.season_id, 0))
+    unlocked_tier = min(season["tiers"], xp // season["xp_per_tier"])
+    if req.tier > unlocked_tier:
+        raise HTTPException(status_code=400, detail=f"Tier {req.tier} not yet unlocked (at tier {unlocked_tier})")
+    claimed = doc["monetization"]["season_claimed"].setdefault(req.season_id, [])
+    if req.tier in claimed:
+        raise HTTPException(status_code=400, detail="Tier already claimed")
+    premium_owned = req.season_id in doc["monetization"]["season_passes"]
+
+    free_reward = _season_reward(req.season_id, req.tier, False)
+    prem_reward = _season_reward(req.season_id, req.tier, True) if premium_owned else {}
+
+    delta_free = _grant(doc, free_reward)
+    delta_prem = _grant(doc, prem_reward) if prem_reward else {}
+    claimed.append(req.tier)
+
+    await db.players.update_one({"id": req.player_id}, {"$set": {
+        "resources": doc["resources"],
+        "monetization": doc["monetization"],
+    }})
+    return {
+        "tier": req.tier,
+        "free": delta_free,
+        "premium": delta_prem if premium_owned else None,
+        "monetization": doc["monetization"],
+        "resources": doc["resources"],
+    }
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,

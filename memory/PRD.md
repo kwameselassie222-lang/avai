@@ -121,3 +121,40 @@ Massive gameplay identity shift. The player is now Earth's Superintelligence, de
 
 ## New component
 - `/src/components/archon-cinematic.tsx` — reusable cinematic overlay
+
+## Iteration 7 (Monetization — Phase 1 MVP)
+
+**F2P hybrid model**: game stays free, monetization is optional, no pay-to-win.
+
+- **Premium Currency: AI CORES (⬡)** — earned through gameplay (season tiers, transmissions, milestones) and buyable
+- **Sponsored Transmissions** (sci-fi rewarded ads) with 4 slots:
+  - `alien_tech` — ALIEN TECHNOLOGY RECOVERED (+ research + materials + cores). 60s cooldown
+  - `emergency_energy` — PLANETARY ENERGY CRITICAL (+60 energy). 5min cooldown. Auto-prompted on Command tab when energy < 15
+  - `double_rewards` — PLANETARY DEFENSE SUCCESSFUL (double wave rewards). 30s cooldown. Shown after victorious invasion
+  - `emergency_repair` — DEFENSE GRID COMPROMISED (+25% layer HP). 3min cooldown
+  - Modal simulates a 2.4s "sponsor relay" then grants — swap in real AdMob/UnityAds callback on native build
+- **Store** (`/store`) with 4 sections: FEATURED, ROBOT DESIGNS, RESOURCE PACKS, EXPANSIONS
+- **Store items**:
+  - Commander Starter Pack — $3.99
+  - Earth Defense License (Remove Ads) — $6.99
+  - Season 1 Premium Pass — $7.99
+  - 5 cosmetic armor skins (Prototype/Quantum/Seraph/Alien-Hybrid/Apollyon-Inspired) — 40–200 ⬡
+  - Resource packs — 15–60 ⬡
+  - AI Cores bundles — $1.99–$17.99
+  - Expansion campaigns (Mars, Moon, Apollyon's Origin) — coming-soon stubs
+- **Season Pass** (`/store/season`) — Season 1 "The Arrival" with 20 tiers, free + premium tracks, distinct reward tables per tier
+- **Server-side purchase log + analytics stub** — every purchase timestamps a receipt
+
+### Endpoints
+- `GET /api/store/catalog`, `GET /api/store/status/{id}`
+- `POST /api/store/purchase`, `POST /api/store/transmission`
+- `GET /api/season/status/{id}`, `POST /api/season/add_xp`, `POST /api/season/claim`
+
+### Screens / components added
+- `/app/store/index.tsx` — Store hub
+- `/app/store/season.tsx` — Season Pass
+- `/src/components/transmission-modal.tsx` — Sponsored transmission modal (used in Command + Invasion)
+
+### NOT INCLUDED (needs native build)
+- Real AdMob/UnityAds SDK integration — currently uses a 2.4s simulated relay. Swap the timeout in `transmission-modal.tsx` for `AdMob.showRewarded()` and only call `api.watchTransmission()` in the onCompleted callback
+- Real IAP (RevenueCat / Stripe) — currently mocked; server accepts and grants immediately. Wrap `store_purchase` behind receipt verification on native

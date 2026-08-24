@@ -224,6 +224,49 @@ export type Doctrine = {
   last_deployed_count?: number | null;
 };
 
+// ==== Iteration 7 — Monetization ====
+export type Monetization = {
+  ai_cores: number;
+  remove_ads: boolean;
+  cosmetics_owned: string[];
+  expansions_owned: string[];
+  season_passes: string[];
+  season_xp: Record<string, number>;
+  season_claimed: Record<string, number[]>;
+  transmission_cd: Record<string, string>;
+  purchase_log: any[];
+};
+
+export type StoreItem = {
+  id: string;
+  kind: "bundle" | "cosmetic" | "removeads" | "season_pass" | "resources" | "currency" | "expansion";
+  name: string;
+  price_usd?: number;
+  price_ai_cores?: number;
+  status?: string;
+  grants: Record<string, any>;
+};
+
+export type StoreCatalog = {
+  featured: StoreItem[];
+  cosmetics: StoreItem[];
+  resource_packs: StoreItem[];
+  expansions: StoreItem[];
+};
+
+export type SeasonStatus = {
+  id: string;
+  name: string;
+  narrative: string;
+  tiers: number;
+  xp_per_tier: number;
+  xp: number;
+  tier: number;
+  next_tier_at: number;
+  premium_owned: boolean;
+  claimed: number[];
+};
+
 export type Player = {
   id: string;
   codename: string;
@@ -582,6 +625,49 @@ export const api = {
   },
   async zoneRepair(payload: { player_id: string; zone_id: string; points: number }): Promise<{ repaired: number; zone: ResourceZone; resources: Resources; viability: number }> {
     const res = await fetch(`${API}/defense/zone_repair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+
+  // ==== Iteration 7 — Monetization ====
+  async storeCatalog(): Promise<StoreCatalog> {
+    return j(await fetch(`${API}/store/catalog`));
+  },
+  async storeStatus(playerId: string): Promise<Monetization> {
+    return j(await fetch(`${API}/store/status/${playerId}`));
+  },
+  async purchase(payload: { player_id: string; item_id: string }): Promise<{ ok: boolean; item: StoreItem; delta: any; monetization: Monetization; resources: Resources }> {
+    const res = await fetch(`${API}/store/purchase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async watchTransmission(payload: { player_id: string; slot: string; context?: any }): Promise<any> {
+    const res = await fetch(`${API}/store/transmission`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async seasonStatus(playerId: string): Promise<{ seasons: SeasonStatus[] }> {
+    return j(await fetch(`${API}/season/status/${playerId}`));
+  },
+  async seasonClaim(payload: { player_id: string; season_id: string; tier: number }): Promise<any> {
+    const res = await fetch(`${API}/season/claim`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async seasonAddXp(payload: { player_id: string; season_id: string; xp: number }): Promise<any> {
+    const res = await fetch(`${API}/season/add_xp`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

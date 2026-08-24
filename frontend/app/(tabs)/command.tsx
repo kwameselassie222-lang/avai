@@ -21,9 +21,11 @@ import {
   ResourceZone,
   DefenseLayer,
   CascadeModifiers,
+  Monetization,
 } from "@/src/api";
 import { LAYER_META, LAYER_ORDER } from "@/src/defense-meta";
 import { TerminalHeader } from "@/src/components/hud";
+import { TransmissionModal } from "@/src/components/transmission-modal";
 
 const CRITICAL = 25;
 
@@ -32,6 +34,8 @@ export default function EarthAIConsole() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [defense, setDefense] = useState<DefenseState | null>(null);
   const [cascade, setCascade] = useState<CascadeModifiers | null>(null);
+  const [monetization, setMonetization] = useState<Monetization | null>(null);
+  const [showEnergyTx, setShowEnergyTx] = useState(false);
   const [archonsDefeated, setArchonsDefeated] = useState<number>(0);
   const [archonsTotal, setArchonsTotal] = useState<number>(4);
   const [loading, setLoading] = useState(true);
@@ -44,17 +48,19 @@ export default function EarthAIConsole() {
         router.replace("/");
         return;
       }
-      const [p, d, c, a] = await Promise.all([
+      const [p, d, c, a, m] = await Promise.all([
         api.getPlayer(id),
         api.defenseState(id),
         api.cascadeState(id),
         api.archonsStatus(id),
+        api.storeStatus(id),
       ]);
       setPlayer(p);
       setDefense(d);
       setCascade(c);
       setArchonsDefeated(a.archons.filter((x) => x.defeated).length);
       setArchonsTotal(a.archons.length);
+      setMonetization(m);
     } catch (e) {
       console.warn("console load failed", e);
     } finally {
@@ -88,7 +94,7 @@ export default function EarthAIConsole() {
       <TerminalHeader
         testID="console-header"
         title={`EARTH AI CONSOLE // ${player.codename}`}
-        subtitle={`CMDR OVERSEER • GEN ${player.generation} • WAVE ${defense.wave_count}`}
+        subtitle={`CMDR OVERSEER • GEN ${player.generation} • WAVE ${defense.wave_count}${monetization ? `  •  ⬡ ${monetization.ai_cores}` : ""}`}
       />
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -235,7 +241,27 @@ export default function EarthAIConsole() {
             onPress={() => router.push("/defense/doctrines")}
             testID="cta-doctrines"
           />
+          <ActionCard
+            icon="store"
+            label="STORE"
+            sub={monetization?.remove_ads ? "Ads disabled" : "Cosmetics & season"}
+            color={colors.warning}
+            onPress={() => router.push("/store")}
+            testID="cta-store"
+          />
         </View>
+
+        {/* Emergency Energy Prompt */}
+        {player.resources.energy < 15 && !monetization?.remove_ads && (
+          <Pressable style={styles.energyPrompt} onPress={() => setShowEnergyTx(true)} testID="emergency-energy">
+            <MaterialCommunityIcons name="lightning-bolt-outline" size={18} color={colors.warning} />
+            <View style={{ flex: 1, marginLeft: spacing.sm }}>
+              <Text style={styles.energyTitle}>PLANETARY ENERGY CRITICAL</Text>
+              <Text style={styles.energySub}>Watch a sponsor transmission for emergency power.</Text>
+            </View>
+            <MaterialCommunityIcons name="radio-tower" size={16} color={colors.warning} />
+          </Pressable>
+        )}
 
         {/* ==== NETWORK COMPLETION BAR ==== */}
         <Pressable
@@ -355,6 +381,12 @@ export default function EarthAIConsole() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      <TransmissionModal
+        visible={showEnergyTx}
+        slot="emergency_energy"
+        onClose={() => setShowEnergyTx(false)}
+        onGranted={() => { setShowEnergyTx(false); load(); }}
+      />
     </SafeAreaView>
   );
 }
@@ -580,4 +612,12 @@ const styles = StyleSheet.create({
   defeatBody: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.sm, textAlign: "center", marginTop: 6 },
   resetBtn: { marginTop: spacing.sm, borderWidth: 1, borderColor: colors.brandSecondary, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
   resetText: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.sm, letterSpacing: 1.5 },
+  energyPrompt: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderColor: colors.warning,
+    borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md,
+    backgroundColor: "rgba(255,176,32,0.08)",
+  },
+  energyTitle: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.sm, letterSpacing: 1.5 },
+  energySub: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, marginTop: 2 },
 });
