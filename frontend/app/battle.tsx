@@ -1,13 +1,29 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useAudioPlayer, setAudioModeAsync } from "expo-audio";
+import * as Haptics from "expo-haptics";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api, storage, V2Config, V2Campaign, V2Level } from "@/src/api";
-import { BattleState, initBattle, tick, deployRobot, useAbility as applyAbility, computeStars, Lane } from "@/src/game/engine";
+import {
+  BattleState, initBattle, tick, deployRobot, useAbility as applyAbility,
+  computeStars, Lane, drainSounds, SoundEvent,
+} from "@/src/game/engine";
 
 const LANES: Lane[] = ["left", "center", "right"];
+
+// Sound assets
+const SFX = {
+  deploy: require("../assets/sfx/deploy.wav"),
+  hit: require("../assets/sfx/hit.wav"),
+  explode: require("../assets/sfx/explode.wav"),
+  ability: require("../assets/sfx/ability.wav"),
+  win: require("../assets/sfx/win.wav"),
+  lose: require("../assets/sfx/lose.wav"),
+};
+const BG_LOOP = require("../assets/sfx/bg_loop.wav");
 
 export default function BattleScreen() {
   const router = useRouter();
@@ -19,9 +35,74 @@ export default function BattleScreen() {
   const [state, setState] = useState<BattleState | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<string | null>(null);
   const [rewardShown, setRewardShown] = useState(false);
+  const [result, setResult] = useState<{
+    victory: boolean; stars: number; parts: number; unlocked: string | null;
+  } | null>(null);
+  const [starsShown, setStarsShown] = useState(0);
   const rafRef = useRef<number | null>(null);
   const lastTsRef = useRef<number>(0);
   const paused = useRef(false);
+
+  // ---- Audio players (loaded once) ----
+  const bgPlayer = useAudioPlayer(BG_LOOP);
+  const deployP = useAudioPlayer(SFX.deploy);
+  const hitP = useAudioPlayer(SFX.hit);
+  const explodeP = useAudioPlayer(SFX.explode);
+  const abilityP = useAudioPlayer(SFX.ability);
+  const winP = useAudioPlayer(SFX.win);
+  const loseP = useAudioPlayer(SFX.lose);
+  const soundsRef = useRef<Record<SoundEvent, ReturnType<typeof useAudioPlayer>>>({
+    deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP, win: winP, lose: loseP,
+  });
+  soundsRef.current = {
+    deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP, win: winP, lose: loseP,
+  };
+
+  // Throttling for hit sfx so we don't spam the audio engine
+  const lastHitAt = useRef<number>(0);
+
+  // Configure audio mode + start bg loop once state is loaded
+  useEffect(() => {
+    (async () => {
+      try {
+        await setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldPlayInBackground: false,
+        });
+      } catch {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!state) return;
+    try {
+      bgPlayer.loop = true;
+      bgPlayer.volume = 0.35;
+      bgPlayer.play();
+    } catch {}
+    return () => {
+      try { bgPlayer.pause(); } catch {}
+    };
+  }, [state !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const playSfx = (kind: SoundEvent) => {
+    const p = soundsRef.current[kind];
+    if (!p) return;
+    try {
+      if (kind === "hit") {
+        // throttle to at most every 40ms
+        const now = Date.now();
+        if (now - lastHitAt.current < 40) return;
+        lastHitAt.current = now;
+        p.volume = 0.35;
+      } else if (kind === "deploy") { p.volume = 0.55; }
+      else if (kind === "explode") { p.volume = 0.7; }
+      else if (kind === "ability") { p.volume = 0.7; }
+      else { p.volume = 0.8; }
+      p.seekTo(0);
+      p.play();
+    } catch {}
+  };
 
   // Load config & init battle
   useEffect(() => {
@@ -35,10 +116,8 @@ export default function BattleScreen() {
         ? p.campaign.deck
         : p.campaign.unlocked_robots.slice(0, 6);
       const st = initBattle(L, c.robots, c.aliens, c.abilities, deck, p.campaign.robot_levels, p.campaign.commander_ability);
-      // Apply commander stage bonus
       const stage = c.stages.find((s) => s.stage === p.campaign.commander_stage);
       if (stage) {
-        // Bonus applied at spawn via robot_levels multiplier for HP — approximate:
         st.earth_max_hp = Math.round(st.earth_max_hp * (1 + stage.hp_bonus / 100));
         st.earth_hp = st.earth_max_hp;
       }
@@ -58,8 +137,11 @@ export default function BattleScreen() {
       const last = lastTsRef.current || ts;
       const dt = Math.min(0.08, (ts - last) / 1000);
       lastTsRef.current = ts;
-      const newState = { ...tick({ ...state, entities: state.entities.map((e) => ({ ...e })) }, level, dt) };
-      setState(newState);
+      const newState = tick({ ...state, entities: state.entities.map((e) => ({ ...e })), particles: [...state.particles] }, level, dt);
+      // Drain sounds
+      const toPlay = drainSounds(newState);
+      for (const s of toPlay) playSfx(s);
+      setState({ ...newState });
       if (!newState.outcome) rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
@@ -72,6 +154,12 @@ export default function BattleScreen() {
     (async () => {
       if (!state || !state.outcome || !level || !camp || rewardShown) return;
       setRewardShown(true);
+      try { bgPlayer.pause(); } catch {}
+      try {
+        Haptics.notificationAsync(state.outcome === "win"
+          ? Haptics.NotificationFeedbackType.Success
+          : Haptics.NotificationFeedbackType.Error).catch(() => {});
+      } catch {}
       const id = await storage.getPlayerId();
       if (!id) return;
       const stars = computeStars(state, level);
@@ -84,24 +172,23 @@ export default function BattleScreen() {
           time_taken_sec: state.time,
           core_hp_remaining_pct: (state.earth_hp / state.earth_max_hp) * 100,
         });
-        Alert.alert(
-          state.outcome === "win" ? "VICTORY" : "DEFEAT",
-          state.outcome === "win"
-            ? `⭐ ${stars}/3\n+${res.parts_awarded} PARTS${res.unlocked_robot ? `\n◆ UNLOCKED: ${res.unlocked_robot.toUpperCase()}` : ""}`
-            : "Earth core destroyed. Retry?",
-          [
-            { text: "MAP", onPress: () => router.replace("/(tabs)/fleet") },
-            { text: state.outcome === "win" ? "NEXT" : "RETRY", onPress: () => {
-              const nextId = state.outcome === "win" ? Math.min(level.id + 1, 10) : level.id;
-              router.replace(`/battle?level=${nextId}`);
-            } },
-          ]
-        );
+        setResult({
+          victory: state.outcome === "win",
+          stars,
+          parts: res.parts_awarded || 0,
+          unlocked: res.unlocked_robot || null,
+        });
+        // Animate stars in one at a time (win only)
+        if (state.outcome === "win" && stars > 0) {
+          for (let i = 1; i <= stars; i++) {
+            setTimeout(() => setStarsShown(i), 350 * i);
+          }
+        }
       } catch (e: any) {
         Alert.alert("SYNC FAILED", String(e.message));
       }
     })();
-  }, [state?.outcome, camp, level, router, rewardShown, state]);
+  }, [state?.outcome, camp, level, router, rewardShown, state, bgPlayer]);
 
   if (!state || !level || !config || !camp) {
     return <View style={styles.loader}><ActivityIndicator color={colors.brandPrimary} /></View>;
@@ -109,18 +196,31 @@ export default function BattleScreen() {
 
   const deployAt = (lane: Lane) => {
     if (!selectedRobot) return;
-    const newState = { ...state, entities: state.entities.map((e) => ({ ...e })) };
-    deployRobot(newState, selectedRobot, lane);
+    const newState = { ...state, entities: state.entities.map((e) => ({ ...e })), particles: [...state.particles] };
+    const ok = deployRobot(newState, selectedRobot, lane);
+    if (ok) {
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); } catch {}
+      const toPlay = drainSounds(newState);
+      for (const s of toPlay) playSfx(s);
+    }
     setState(newState);
   };
 
   const triggerAbility = () => {
     if (!state.ability || state.ability_charge < 1) return;
-    const ns = applyAbility({ ...state, entities: state.entities.map((e) => ({ ...e })) });
+    const ns = applyAbility({ ...state, entities: state.entities.map((e) => ({ ...e })), particles: [...state.particles] });
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {}); } catch {}
+    const toPlay = drainSounds(ns);
+    for (const s of toPlay) playSfx(s);
     setState({ ...ns });
   };
 
   const deck = camp.deck.length > 0 ? camp.deck : camp.unlocked_robots.slice(0, 6);
+
+  // Screen shake offset
+  const shake = state.screen_shake;
+  const shakeX = shake > 0 ? Math.sin(state.time * 60) * 6 * shake : 0;
+  const shakeY = shake > 0 ? Math.cos(state.time * 55) * 4 * shake : 0;
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
@@ -138,8 +238,8 @@ export default function BattleScreen() {
         <Text style={styles.timer}>{Math.floor(state.time)}s</Text>
       </View>
 
-      {/* Battlefield */}
-      <View style={styles.field}>
+      {/* Battlefield with shake */}
+      <View style={[styles.field, { transform: [{ translateX: shakeX }, { translateY: shakeY }] }]}>
         {/* Alien core */}
         <View style={styles.alienBase}>
           <MaterialCommunityIcons name="alien" size={40} color={colors.brandSecondary} />
@@ -160,9 +260,43 @@ export default function BattleScreen() {
           </Pressable>
         ))}
 
+        {/* Explosion & hit particles */}
+        {state.particles.map((p) => {
+          const laneIdx = p.lane === "left" ? 0 : p.lane === "center" ? 1 : 2;
+          const age = Math.max(0, state.time - p.born_at);
+          const prog = Math.min(1, age / p.ttl);
+          const scale = p.kind === "explode" ? 0.4 + prog * 1.8 : 0.6 + prog * 1.2;
+          const opacity = 1 - prog;
+          return (
+            <View
+              key={p.id}
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: `${laneIdx * 33.3 + 16.6}%`,
+                bottom: `${p.y}%`,
+                width: p.size,
+                height: p.size,
+                transform: [{ translateX: -p.size / 2 }, { translateY: p.size / 2 }, { scale }],
+                borderRadius: p.size,
+                borderWidth: p.kind === "explode" ? 3 : 2,
+                borderColor: p.color,
+                backgroundColor: p.kind === "explode" ? `${p.color}22` : `${p.color}66`,
+                opacity,
+              }}
+            />
+          );
+        })}
+
         {/* Entities */}
         {state.entities.map((e) => {
           const laneIdx = e.lane === "left" ? 0 : e.lane === "center" ? 1 : 2;
+          // landing scale-in over 0.3s
+          const spawnAge = state.time - e.spawn_time;
+          const landScale = spawnAge < 0.3 ? 0.4 + (spawnAge / 0.3) * 0.6 : 1;
+          // hit flash overlay if last hit < 0.15s
+          const hitAge = state.time - e.last_hit_at;
+          const flash = hitAge >= 0 && hitAge < 0.15;
           return (
             <View
               key={e.id}
@@ -171,19 +305,30 @@ export default function BattleScreen() {
                 {
                   left: `${laneIdx * 33.3 + 16.6}%`,
                   bottom: `${e.y}%`,
-                  transform: [{ translateX: -e.size / 2 }, { translateY: e.size / 2 }],
+                  transform: [{ translateX: -e.size / 2 }, { translateY: e.size / 2 }, { scale: landScale }],
                   width: e.size, height: e.size,
-                  backgroundColor: e.color,
-                  borderColor: e.side === "player" ? colors.brandPrimary : colors.brandSecondary,
+                  backgroundColor: flash ? "#FFFFFF" : e.color,
+                  borderColor: flash ? "#FFFFFF" : (e.side === "player" ? colors.brandPrimary : colors.brandSecondary),
                   borderWidth: 2,
                   borderRadius: e.kind === "air" ? e.size / 2 : 2,
                   opacity: e.stun > 0 ? 0.5 : 1,
+                  shadowColor: e.color,
+                  shadowOpacity: flash ? 1 : 0.6,
+                  shadowRadius: flash ? 8 : 3,
                 },
               ]}
             >
               <View style={styles.entityHp}>
                 <View style={[styles.entityHpFill, { width: `${(e.hp / e.max_hp) * 100}%`, backgroundColor: e.side === "player" ? colors.success : colors.brandSecondary }]} />
               </View>
+              {/* Stun ring */}
+              {e.stun > 0 && (
+                <View pointerEvents="none" style={{
+                  position: "absolute", left: -4, top: -4, right: -4, bottom: -4,
+                  borderRadius: e.size, borderWidth: 2, borderColor: "#88CCFF",
+                  opacity: 0.7,
+                }} />
+              )}
             </View>
           );
         })}
@@ -245,6 +390,98 @@ export default function BattleScreen() {
           })}
         </View>
       </View>
+
+      {/* Victory / Defeat overlay */}
+      {result && level && (
+        <Modal transparent animationType="fade" visible>
+          <View style={styles.overlay}>
+            <View style={[
+              styles.overlayCard,
+              { borderColor: result.victory ? colors.brandPrimary : colors.brandSecondary },
+            ]}>
+              <View style={styles.overlayHeader}>
+                <MaterialCommunityIcons
+                  name={result.victory ? "trophy-variant" : "skull-crossbones"}
+                  size={44}
+                  color={result.victory ? colors.brandPrimary : colors.brandSecondary}
+                />
+                <Text style={[
+                  styles.overlayTitle,
+                  { color: result.victory ? colors.brandPrimary : colors.brandSecondary },
+                ]}>
+                  {result.victory ? "VICTORY" : "DEFEAT"}
+                </Text>
+              </View>
+
+              <Text style={styles.overlaySub}>{level.name.toUpperCase()}</Text>
+
+              {result.victory ? (
+                <>
+                  <View style={styles.starRow}>
+                    {[1, 2, 3].map((n) => (
+                      <View key={n} style={styles.starWrap}>
+                        <MaterialCommunityIcons
+                          name={n <= starsShown ? "star" : "star-outline"}
+                          size={n <= starsShown ? 48 : 36}
+                          color={n <= starsShown ? colors.warning : colors.border}
+                        />
+                      </View>
+                    ))}
+                  </View>
+                  <View style={styles.rewardRow}>
+                    <MaterialCommunityIcons name="cog" size={16} color={colors.warning} />
+                    <Text style={styles.rewardText}>+{result.parts} PARTS</Text>
+                  </View>
+                  {result.unlocked && (
+                    <View style={[styles.unlockBox, { borderColor: colors.brandPrimary }]}>
+                      <Text style={styles.unlockLabel}>◆ ROBOT UNLOCKED</Text>
+                      <Text style={styles.unlockName}>{result.unlocked.toUpperCase()}</Text>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <Text style={styles.defeatMsg}>Earth core destroyed.{"\n"}The invasion continues.</Text>
+              )}
+
+              <View style={styles.overlayActions}>
+                <Pressable
+                  onPress={() => router.replace("/(tabs)/fleet")}
+                  style={[styles.actionBtn, { borderColor: colors.border }]}
+                >
+                  <MaterialCommunityIcons name="map" size={16} color={colors.onSurface} />
+                  <Text style={styles.actionText}>MAP</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const nextId = result.victory ? Math.min(level.id + 1, 10) : level.id;
+                    setRewardShown(false);
+                    setResult(null);
+                    setStarsShown(0);
+                    setState(null);
+                    setSelectedRobot(null);
+                    router.replace(`/battle?level=${nextId}`);
+                  }}
+                  style={[styles.actionBtn, {
+                    borderColor: result.victory ? colors.brandPrimary : colors.brandSecondary,
+                    backgroundColor: result.victory ? "rgba(0,229,255,0.15)" : "rgba(255,51,102,0.15)",
+                  }]}
+                >
+                  <MaterialCommunityIcons
+                    name={result.victory ? "arrow-right-bold" : "refresh"}
+                    size={16}
+                    color={result.victory ? colors.brandPrimary : colors.brandSecondary}
+                  />
+                  <Text style={[styles.actionText, {
+                    color: result.victory ? colors.brandPrimary : colors.brandSecondary,
+                  }]}>
+                    {result.victory ? "NEXT" : "RETRY"}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -321,4 +558,65 @@ const styles = StyleSheet.create({
   },
   costText: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: 9, letterSpacing: 0.5 },
   cardName: { fontFamily: fonts.displayBold, fontSize: 9, letterSpacing: 1, marginTop: 2 },
+
+  // Overlay
+  overlay: {
+    flex: 1, backgroundColor: "rgba(5,8,16,0.92)",
+    alignItems: "center", justifyContent: "center", padding: spacing.xl,
+  },
+  overlayCard: {
+    width: "100%", maxWidth: 360, borderWidth: 2, borderRadius: radius.md,
+    backgroundColor: colors.surface, padding: spacing.xl, alignItems: "center",
+    shadowColor: colors.brandPrimary, shadowOpacity: 0.4, shadowRadius: 16,
+  },
+  overlayHeader: {
+    alignItems: "center", marginBottom: spacing.md,
+  },
+  overlayTitle: {
+    fontFamily: fonts.displayBold, fontSize: fontSize.xxxl, letterSpacing: 6,
+    marginTop: spacing.sm,
+  },
+  overlaySub: {
+    fontFamily: fonts.mono, color: colors.onSurfaceSecondary, fontSize: fontSize.sm,
+    letterSpacing: 1, marginBottom: spacing.lg, textAlign: "center",
+  },
+  starRow: {
+    flexDirection: "row", gap: spacing.sm, marginBottom: spacing.lg, alignItems: "center",
+  },
+  starWrap: { width: 52, height: 52, alignItems: "center", justifyContent: "center" },
+  rewardRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderColor: colors.warning,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderRadius: radius.md, marginBottom: spacing.md,
+    backgroundColor: "rgba(255,176,32,0.08)",
+  },
+  rewardText: {
+    fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.base, letterSpacing: 1.5,
+  },
+  unlockBox: {
+    borderWidth: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderRadius: radius.md, marginBottom: spacing.md, alignItems: "center",
+    backgroundColor: "rgba(0,229,255,0.08)",
+  },
+  unlockLabel: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: 10, letterSpacing: 2,
+  },
+  unlockName: {
+    fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: fontSize.lg, letterSpacing: 3, marginTop: 2,
+  },
+  defeatMsg: {
+    fontFamily: fonts.body, color: colors.onSurfaceSecondary,
+    fontSize: fontSize.sm, textAlign: "center", marginBottom: spacing.lg, lineHeight: 20,
+  },
+  overlayActions: {
+    flexDirection: "row", gap: spacing.md, width: "100%", marginTop: spacing.sm,
+  },
+  actionBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+    borderWidth: 1, paddingVertical: spacing.md, borderRadius: radius.md,
+  },
+  actionText: {
+    fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: fontSize.sm, letterSpacing: 2,
+  },
 });

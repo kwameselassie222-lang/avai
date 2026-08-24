@@ -2,31 +2,45 @@ import { V2Level, V2Robot, V2Alien, V2Ability } from "@/src/api";
 
 export type Lane = "left" | "center" | "right";
 export type Side = "player" | "alien";
+export type SoundEvent = "deploy" | "hit" | "explode" | "ability" | "win" | "lose";
 
 export type Entity = {
   id: string;
   side: Side;
-  type: string;        // robot_id or alien_id
+  type: string;
   name: string;
   kind: "ground" | "air";
   hp: number;
   max_hp: number;
   atk: number;
-  speed: number;       // units per sec
-  range: number;       // effective attack distance
-  atk_rate: number;    // seconds between attacks
+  speed: number;
+  range: number;
+  atk_rate: number;
   atk_cooldown: number;
   lane: Lane;
-  y: number;           // 0 (player base) → 100 (alien base)
-  stun: number;        // seconds of stun remaining
+  y: number;
+  stun: number;
   color: string;
   size: number;
+  spawn_time: number;
+  last_hit_at: number;
+};
+
+export type Particle = {
+  id: string;
+  lane: Lane;
+  y: number;
+  color: string;
+  size: number;
+  born_at: number;
+  ttl: number;
+  kind: "explode" | "hit";
 };
 
 export type BattleState = {
   playing: boolean;
   outcome: "win" | "lose" | null;
-  time: number;               // seconds elapsed
+  time: number;
   energy: number;
   energy_max: number;
   earth_hp: number;
@@ -34,9 +48,10 @@ export type BattleState = {
   alien_hp: number;
   alien_max_hp: number;
   entities: Entity[];
+  particles: Particle[];
   wave_index: number;
-  ability_charge: number;     // 0..1
-  overclock_until: number;    // time when overclock ends
+  ability_charge: number;
+  overclock_until: number;
   ability_id: string;
   ability: V2Ability | null;
   target_time: number;
@@ -44,6 +59,8 @@ export type BattleState = {
   aliens: Record<string, V2Alien>;
   robot_levels: Record<string, number>;
   events: string[];
+  sound_queue: SoundEvent[];
+  screen_shake: number; // decays over time (0..1)
 };
 
 const ENERGY_REGEN_PER_SEC = 0.5;
@@ -68,12 +85,23 @@ function robotStats(r: V2Robot, level: number) {
   };
 }
 
+function queueSound(state: BattleState, s: SoundEvent) {
+  state.sound_queue.push(s);
+  if (state.sound_queue.length > 12) state.sound_queue.shift();
+}
+
+export function drainSounds(state: BattleState): SoundEvent[] {
+  const out = state.sound_queue;
+  state.sound_queue = [];
+  return out;
+}
+
 export function initBattle(
   level: V2Level,
   robots: V2Robot[],
   aliens: V2Alien[],
   abilities: V2Ability[],
-  deck: string[],
+  _deck: string[],
   robot_levels: Record<string, number>,
   ability_id: string,
 ): BattleState {
@@ -92,6 +120,7 @@ export function initBattle(
     alien_hp: level.core_hp,
     alien_max_hp: level.core_hp,
     entities: [],
+    particles: [],
     wave_index: 0,
     ability_charge: 0,
     overclock_until: 0,
@@ -102,6 +131,8 @@ export function initBattle(
     aliens: aMap,
     robot_levels,
     events: [],
+    sound_queue: [],
+    screen_shake: 0,
   };
 }
 
@@ -118,9 +149,11 @@ export function deployRobot(state: BattleState, robotId: string, lane: Lane): bo
     hp: s.hp, max_hp: s.hp, atk: s.atk, speed: r.speed, range: r.range,
     atk_rate: r.atk_rate, atk_cooldown: 0, lane, y: 8, stun: 0,
     color: ROBOT_COLORS[r.id] || "#00E5FF", size: r.id === "titan" ? 18 : r.id === "tank" ? 16 : 12,
+    spawn_time: state.time, last_hit_at: -999,
   });
   state.events.push(`▮ ${r.name} deployed`);
   if (state.events.length > 8) state.events.shift();
+  queueSound(state, "deploy");
   return true;
 }
 
@@ -134,7 +167,33 @@ function spawnAlien(state: BattleState, wave: { type: string; lane: Lane }, leve
     atk: Math.round(a.atk * diff), speed: a.speed, range: a.range,
     atk_rate: a.atk_rate, atk_cooldown: 0, lane: wave.lane, y: 92, stun: 0,
     color: ALIEN_COLORS[a.id] || "#FF00FF", size: a.boss ? 22 : a.id === "brute" ? 16 : 12,
+    spawn_time: state.time, last_hit_at: -999,
   });
+}
+
+function applyDamage(state: BattleState, target: Entity, dmg: number) {
+  const before = target.hp;
+  target.hp = Math.max(0, target.hp - dmg);
+  target.last_hit_at = state.time;
+  if (before > 0) {
+    // small hit particle
+    state.particles.push({
+      id: uid(), lane: target.lane, y: target.y,
+      color: target.side === "alien" ? "#FFEE55" : "#FF5588",
+      size: 8, born_at: state.time, ttl: 0.18, kind: "hit",
+    });
+    queueSound(state, "hit");
+  }
+  if (target.hp <= 0 && before > 0) {
+    // explosion particle
+    state.particles.push({
+      id: uid(), lane: target.lane, y: target.y,
+      color: target.side === "alien" ? "#FF3366" : "#00E5FF",
+      size: Math.max(20, target.size * 2.4), born_at: state.time, ttl: 0.55, kind: "explode",
+    });
+    queueSound(state, "explode");
+    state.screen_shake = Math.min(1, state.screen_shake + 0.35);
+  }
 }
 
 export function tick(state: BattleState, level: V2Level, dt: number): BattleState {
@@ -142,6 +201,7 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
   state.time += dt;
   state.energy = Math.min(state.energy_max, state.energy + ENERGY_REGEN_PER_SEC * dt);
   state.ability_charge = Math.min(1, state.ability_charge + ABILITY_CHARGE_PER_SEC * dt);
+  state.screen_shake = Math.max(0, state.screen_shake - dt * 2.0);
 
   // Spawn waves
   while (state.wave_index < level.waves.length && level.waves[state.wave_index].at <= state.time) {
@@ -196,8 +256,15 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
         if (useCore) {
           if (e.side === "player") state.alien_hp = Math.max(0, state.alien_hp - atk);
           else state.earth_hp = Math.max(0, state.earth_hp - atk);
+          // small hit fx on core
+          state.particles.push({
+            id: uid(), lane: e.lane, y: e.side === "player" ? 96 : 4,
+            color: e.side === "player" ? "#FF3366" : "#00E5FF",
+            size: 14, born_at: state.time, ttl: 0.25, kind: "hit",
+          });
+          queueSound(state, "hit");
         } else if (target) {
-          target.hp = Math.max(0, target.hp - atk);
+          applyDamage(state, target, atk);
         }
         e.atk_cooldown = e.atk_rate;
       }
@@ -208,10 +275,23 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
   state.entities = state.entities.filter((e) => e.hp > 0);
   for (const e of state.entities) e.y = Math.max(4, Math.min(96, e.y));
 
+  // Cleanup expired particles
+  state.particles = state.particles.filter((p) => state.time - p.born_at < p.ttl);
+
   // Check outcome
-  if (state.alien_hp <= 0) { state.playing = false; state.outcome = "win"; }
-  else if (state.earth_hp <= 0) { state.playing = false; state.outcome = "lose"; }
-  else if (state.time > 240) { state.playing = false; state.outcome = "lose"; }
+  if (state.alien_hp <= 0) {
+    state.playing = false;
+    state.outcome = "win";
+    queueSound(state, "win");
+  } else if (state.earth_hp <= 0) {
+    state.playing = false;
+    state.outcome = "lose";
+    queueSound(state, "lose");
+  } else if (state.time > 240) {
+    state.playing = false;
+    state.outcome = "lose";
+    queueSound(state, "lose");
+  }
 
   return state;
 }
@@ -220,19 +300,34 @@ export function useAbility(state: BattleState): BattleState {
   if (!state.playing || state.ability_charge < 1 || !state.ability) return state;
   const abil = state.ability;
   state.ability_charge = 0;
+  queueSound(state, "ability");
   if (abil.id === "orbital") {
     const dmg = abil.damage || 180;
     for (const e of state.entities) {
-      if (e.side === "alien") e.hp = Math.max(0, e.hp - dmg);
+      if (e.side === "alien") applyDamage(state, e, dmg);
     }
     state.events.push("◆ ORBITAL STRIKE");
+    state.screen_shake = 1;
   } else if (abil.id === "emp") {
     const s = abil.stun || 3;
-    for (const e of state.entities) if (e.side === "alien") e.stun = s;
+    for (const e of state.entities) if (e.side === "alien") {
+      e.stun = s;
+      state.particles.push({
+        id: uid(), lane: e.lane, y: e.y,
+        color: "#88CCFF", size: 18, born_at: state.time, ttl: 0.4, kind: "hit",
+      });
+    }
     state.events.push("◆ EMP PULSE");
+    state.screen_shake = Math.max(state.screen_shake, 0.5);
   } else if (abil.id === "repair") {
     const p = abil.heal_pct || 0.4;
-    for (const e of state.entities) if (e.side === "player") e.hp = Math.min(e.max_hp, e.hp + e.max_hp * p);
+    for (const e of state.entities) if (e.side === "player") {
+      e.hp = Math.min(e.max_hp, e.hp + e.max_hp * p);
+      state.particles.push({
+        id: uid(), lane: e.lane, y: e.y,
+        color: "#00FF88", size: 14, born_at: state.time, ttl: 0.5, kind: "hit",
+      });
+    }
     state.events.push("◆ REPAIR WAVE");
   } else if (abil.id === "overclock") {
     state.overclock_until = state.time + (abil.duration || 6);

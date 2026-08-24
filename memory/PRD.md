@@ -201,3 +201,35 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
 - `src/game/engine.ts` — full battle engine (init, tick, deploy, ability, stars)
 - `app/battle.tsx` — battle screen
 - 4 rewritten tabs
+
+## Iteration 9 — Battle Feedback FX & Sound (June 2026)
+
+### Visual FX (in battle.tsx + engine.ts)
+- **Landing scale-in**: newly deployed entities scale from 0.4→1.0 over 0.3s
+- **Hit flash**: entities briefly turn white for 150ms after taking damage
+- **Hit particles**: colored rings spawn at hit points, expand + fade over 180ms
+- **Explosion particles**: on entity death, larger rings expand 0.4→2.2× over 550ms
+- **Screen shake**: field translates ±6px on explosions and Orbital Strike
+- **Stun ring**: light-blue outline around stunned aliens (EMP)
+- **Core-hit sparks**: colored flash when Earth/Alien core takes damage
+
+### Audio (expo-audio ~1.1)
+- Local WAV assets bundled at `/frontend/assets/sfx/`:
+  - `deploy.wav` — mechanical thud + rising blip
+  - `hit.wav` — short zap (throttled to 40ms)
+  - `explode.wav` — low boom + noise wash
+  - `ability.wav` — sci-fi charge/whoosh
+  - `win.wav` — triumphant chord
+  - `lose.wav` — descending sad tone
+  - `bg_loop.wav` — 9.6s tense synth-wave loop (100 BPM, minor arpeggio + kick + pad)
+- `useAudioPlayer` per SFX for zero-latency retrigger via `seekTo(0); play()`
+- Background loop starts on battle load, pauses on outcome
+- `setAudioModeAsync({ playsInSilentMode: true })` for iOS silent-mode playback
+- Haptics: medium impact on deploy, heavy on ability, success/error on outcome
+
+### Victory / Defeat Overlay
+- Full-screen modal replaces Alert
+- Animated star reveal (staggered 350ms each) up to 3 stars
+- +PARTS reward badge with warning color
+- Robot-unlocked banner when a new bot is earned
+- MAP / NEXT (or RETRY) actions

@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 9 (Battle FX + expo-audio) frontend validated. Home → codename FXTEST → activate → /battle?level=1 works. Battle HUD renders (ALIEN CORE HP + timer top; EARTH CORE HP + ⚡5/10 + ORBITAL STRIKE + SCOUT card bottom; alien/earth icons + 3 lane dividers on field). Scout deploy flow works: tap card-scout → tap deploy-{lane} spawns cyan square robot at bottom of lane with scale-in animation. Deploys successful in center then left as energy regened; other attempts skipped due to energy. Combat runs, alien crawler reaches earth core → DEFEAT outcome triggered. Full-screen Modal overlay shown (not native Alert) with red skull-crossbones icon, red 'DEFEAT' title, level subtitle 'FIRST LANDING — ATLANTA', message 'Earth core destroyed. The invasion continues.', MAP + RETRY buttons. Tapping RETRY reloads /battle fresh (overlay gone, HUD re-rendered). All 7 audio files delivered successfully: bg_loop.wav, deploy.wav, hit.wav, explode.wav, ability.wav, win.wav, lose.wav (HTTP 206 Partial Content — normal for audio range requests). No expo-audio or wav-related errors in console. Tabs smoke check: home/robots/fleet/commander all navigable. Victory path (stars animation, +PARTS badge, NEXT button) not exercised because run ended in DEFEAT, but the same overlay component with victory branch is rendered from the same tree (code-verified in battle.tsx L418-441). No red screen, no crash.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "battle overlay + several", "issues": ["Console: RN-web deprecation warnings — 'shadow*' style props are deprecated (use boxShadow), 'props.pointerEvents is deprecated' (use style.pointerEvents), 'Image: style.resizeMode is deprecated' (use props.resizeMode). Non-blocking but should be migrated for React Native 0.76+/RN-Web compatibility."]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_7.json"],
+  "action_items": [
+    "Optional cleanup: migrate 'shadow*' StyleSheet props to 'boxShadow' (see battle.tsx overlayCard & entity shadow props) and switch pointerEvents/resizeMode from style to prop form to silence RN-Web deprecation warnings.",
+    "Optional: verify VICTORY overlay path (star fill-in one-by-one with 350ms delay, +PARTS badge, NEXT button) — could not naturally trigger in this run because scout-only deck was overrun; consider seeding an easier level or a debug win button. Code path visually inspected and looks correct."
+  ],
+  "critical_code_review_comments": [
+    "battle.tsx L86: useEffect deps use [state !== null] (boolean coercion) which is unusual but effectively fires when state transitions from null→non-null. Fine, but eslint-disable is warranted (already applied).",
+    "battle.tsx L54-59: soundsRef is assigned during render every frame; harmless but the assignment is redundant with initial useRef value. Consider replacing with useEffect to avoid double-work on each rerender.",
+    "engine.ts sound_queue caps at 12 entries via shift() — good backpressure protection against audio spam."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% of critical flows (deploy, combat FX pipeline, DEFEAT overlay, RETRY reload, audio wiring, tabs smoke)"},
+  "seed_data_creation": "None. Auto-init via codename 'FXTEST'.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Battle FX + expo-audio wiring verified. All 7 wav assets returned 200/206. Overlay Modal + RETRY reload confirmed on DEFEAT path. Victory path (stars 350ms cascade + PARTS badge + NEXT button) is code-verified but not exercised in-game — if next iteration wants live victory validation, either use a debug flag or lower level 1 core_hp temporarily. Deprecation warnings for shadow*/pointerEvents/resizeMode remain across the app.",
+  "rca_of_issue": "N/A — no bugs found in iteration 9."
+}

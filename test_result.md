@@ -606,3 +606,52 @@ agent_communication:
         energy above 100 between repair actions. If large multi-zone repairs are a UX
         goal the FE should chain smaller repairs.
         No blockers. Both iteration 6 backend tasks now working=true, needs_retesting=false.
+
+##
+## Iteration 9 — Battle Feedback FX & Sound (June 2026)
+## test_result:
+##   frontend:
+##     - task: "Battle FX & Audio"
+##       implemented: true
+##       working: "NA"
+##       file: "/app/frontend/app/battle.tsx, /app/frontend/src/game/engine.ts"
+##       stuck_count: 0
+##       priority: "high"
+##       needs_retesting: true
+##       status_history:
+##         -working: "NA"
+##         -agent: "main"
+##         -comment: |
+##            Added particle system (hit sparks, explosion rings), landing scale-in for deployed units,
+##            hit-flash on damaged entities, screen shake on explosions and Orbital Strike.
+##            Integrated expo-audio ~1.1: 6 SFX WAVs (deploy, hit, explode, ability, win, lose) + a 9.6s
+##            tense synth-wave background loop (assets/sfx/bg_loop.wav). SFX preloaded via useAudioPlayer,
+##            retriggered via seekTo(0)+play(). Hit SFX throttled to 40ms.
+##            Replaced Alert with full-screen animated Victory/Defeat modal — staggered star reveal
+##            (up to 3), parts reward badge, unlock banner, MAP/NEXT|RETRY actions.
+##            Added Haptics (impact on deploy/ability, notification on outcome).
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Iteration 9 — implemented Battle Feedback FX + Sound.
+        Please validate:
+        1. Navigate: /  → enter codename "FXTEST" → tap ACTIVATE AI CORE
+        2. From /command home, navigate to /(tabs)/fleet then tap the first level pin
+           (or directly go to /battle?level=1)
+        3. On the battle screen verify:
+           - Background music loop is audible on native/emulator (web browsers require user gesture first)
+           - Tap the SCOUT card, then a "TAP TO DEPLOY" lane — a robot appears with a
+             brief scale-in landing animation. Deploy sound plays.
+           - Alien crawlers spawn (green cubes) and move down toward Earth Core.
+           - When a robot & alien collide, brief hit flashes (white overlay) appear on both,
+             hit particles ring outward, hit sound plays.
+           - When something dies, a larger explosion ring appears + explosion sound + small screen shake.
+           - When Alien Core HP reaches 0 → VICTORY overlay with 1-3 stars animating in staggered,
+             +PARTS reward, possibly Robot Unlocked banner. MAP / NEXT actions.
+           - When Earth Core HP reaches 0 → DEFEAT overlay with skull, "Earth core destroyed.
+             The invasion continues.", MAP / RETRY actions.
+           - Tap RETRY on defeat → reloads /battle?level=1 fresh.
+           - Tap NEXT on victory → goes to next level.
+        4. Ensure NO regressions in Home / Robots / Map / Commander tabs.
+        Test credentials: none required (auto-init by codename).
