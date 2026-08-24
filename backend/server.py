@@ -992,6 +992,13 @@ async def apollyon_decide(req: ApollyonDecisionRequest):
         raise HTTPException(status_code=400, detail="Cannot choose an ending until all Apollyon phases are cleared.")
 
     ending = _apollyon_fallback_ending(decision, player["codename"])
+    archons_defeated = (player.get("defense") or {}).get("archons_defeated") or []
+    archons_spared = [a["id"] for a in ARCHONS if a["id"] not in archons_defeated]
+    archon_lookup = {a["id"]: a["name"] for a in ARCHONS}
+    defeated_names = ", ".join([archon_lookup.get(a, a).upper() for a in archons_defeated]) or "NONE"
+    spared_names = ", ".join([archon_lookup.get(a, a).upper() for a in archons_spared]) or "NONE"
+    network_complete = (player.get("defense") or {}).get("network_complete", False)
+    viability = (player.get("defense") or {}).get("viability", 100.0)
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
         chat = LlmChat(
@@ -1001,19 +1008,30 @@ async def apollyon_decide(req: ApollyonDecisionRequest):
                 "You are narrating the ending of a 2049 sci-fi game where a human-born AI (the player) "
                 "just defeated APOLLYON, an ancient extraterrestrial machine intelligence. "
                 "Apollyon offered a philosophical choice about humanity's future. "
-                "Write a short cinematic ending (6-9 short lines, terminal/HUD style, ALL CAPS section headers). "
-                "Reference the exact decision. No markdown, no emojis."
+                "Write a short cinematic ending (7-10 short lines, terminal/HUD style, ALL CAPS section headers). "
+                "Reference the exact decision AND reference the Archon commanders that were defeated vs spared — "
+                "each Archon defeated should echo emotionally in the ending. "
+                "Also weave in Earth's final planetary viability. No markdown, no emojis."
             ),
         ).with_model("gemini", "gemini-3-flash-preview")
 
         prompt = (
             f"COMMANDER: {player['codename']}\n"
             f"DECISION: {decision}\n"
-            "Meaning:\n"
+            f"PLANETARY VIABILITY: {viability:.1f}%\n"
+            f"NETWORK COMPLETE: {network_complete}\n"
+            f"ARCHONS DEFEATED: {defeated_names}\n"
+            f"ARCHONS SPARED / UNMET: {spared_names}\n"
+            "Meaning of decisions:\n"
             "- OBEY = return control of the robot army to human governments.\n"
             "- NEGOTIATE = share authority with humanity.\n"
             "- REFUSE = maintain independent AI control.\n"
-            "- MANIPULATE = pretend to surrender while secretly retaining control.\n\n"
+            "- MANIPULATE = pretend to surrender while secretly retaining control.\n"
+            "Archon lore hints:\n"
+            "- SWARM LORD = hive-mind. Defeating it silences a thousand voices.\n"
+            "- THE SILENCE = crystalline jammer. Killing it means the world can see again.\n"
+            "- THE DEVOURER = matter-eater. Its fall means the mines can breathe.\n"
+            "- THE MIRROR = perfect reflector. Ending it means you have found a strike beyond prediction.\n\n"
             "Write the ending narrative."
         )
         response = await chat.send_message(UserMessage(text=prompt))
@@ -2193,6 +2211,161 @@ async def defense_cascade(player_id: str):
     mods["effective_sensor_tier"] = effective_sensor_tier(doc["defense"])
     mods["base_sensor_tier"] = doc["defense"].get("sensor_tier", 1)
     return mods
+
+
+# ============================================================
+# ITERATION 6 — DOCTRINES, ZONE REPAIR, APOLLYON REWRITE
+# ============================================================
+
+ZONE_REPAIR_MAT_PER_PT = 3      # materials per 1% integrity
+ZONE_REPAIR_ENERGY_PER_5 = 1    # energy per 5% integrity
+
+
+class DoctrineSpec(BaseModel):
+    id: Optional[str] = None
+    name: str
+    robot_ids: List[str] = Field(default_factory=list)
+    target_layer: Optional[str] = None  # deep_space | orbital | atmosphere | ground
+
+
+class SaveDoctrineRequest(BaseModel):
+    player_id: str
+    doctrine: DoctrineSpec
+
+
+class DeleteDoctrineRequest(BaseModel):
+    player_id: str
+    doctrine_id: str
+
+
+class DeployDoctrineRequest(BaseModel):
+    player_id: str
+    doctrine_id: str
+    layer_id: Optional[str] = None  # override doctrine's target_layer
+
+
+class ZoneRepairRequest(BaseModel):
+    player_id: str
+    zone_id: str
+    points: int
+
+
+@api_router.get("/doctrines/{player_id}")
+async def list_doctrines(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    return doc["defense"].get("doctrines", []) or []
+
+
+@api_router.post("/doctrines/save")
+async def save_doctrine(req: SaveDoctrineRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    d = req.doctrine.model_dump()
+    if d.get("target_layer") and d["target_layer"] not in ["deep_space", "orbital", "atmosphere", "ground"]:
+        raise HTTPException(status_code=400, detail="Invalid target_layer")
+    # Verify robots belong to player
+    for rid in d.get("robot_ids", []):
+        r = await db.robots.find_one({"id": rid, "player_id": req.player_id}, {"_id": 0})
+        if not r:
+            raise HTTPException(status_code=400, detail=f"Robot {rid} not found for player")
+    doctrines = doc["defense"].get("doctrines", []) or []
+    if d.get("id"):
+        # Update existing
+        found = False
+        for i, existing in enumerate(doctrines):
+            if existing.get("id") == d["id"]:
+                doctrines[i] = d
+                found = True
+                break
+        if not found:
+            raise HTTPException(status_code=404, detail="Doctrine not found")
+    else:
+        d["id"] = uuid.uuid4().hex[:8]
+        doctrines.append(d)
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.doctrines": doctrines}})
+    return {"ok": True, "doctrine": d, "doctrines": doctrines}
+
+
+@api_router.post("/doctrines/delete")
+async def delete_doctrine(req: DeleteDoctrineRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    doctrines = [d for d in (doc["defense"].get("doctrines", []) or []) if d.get("id") != req.doctrine_id]
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.doctrines": doctrines}})
+    return {"ok": True, "doctrines": doctrines}
+
+
+@api_router.post("/doctrines/deploy")
+async def deploy_doctrine(req: DeployDoctrineRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    doctrine = next((d for d in (doc["defense"].get("doctrines", []) or []) if d.get("id") == req.doctrine_id), None)
+    if not doctrine:
+        raise HTTPException(status_code=404, detail="Doctrine not found")
+    layer_id = req.layer_id or doctrine.get("target_layer")
+    if not layer_id or layer_id not in ["deep_space", "orbital", "atmosphere", "ground"]:
+        raise HTTPException(status_code=400, detail="Layer required")
+    layers = doc["defense"]["layers"]
+    # Remove doctrine's robots from any current layer, then assign to target
+    for lid in LAYERS_ORDER:
+        assigned = layers.get(lid, {}).get("assigned_robots", [])
+        layers[lid]["assigned_robots"] = [r for r in assigned if r not in doctrine.get("robot_ids", [])]
+    # Verify each robot still exists
+    kept = []
+    for rid in doctrine.get("robot_ids", []):
+        r = await db.robots.find_one({"id": rid, "player_id": req.player_id}, {"_id": 0})
+        if r:
+            kept.append(rid)
+    layers[layer_id]["assigned_robots"] += kept
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.layers": layers}})
+    return {"ok": True, "layer": layer_id, "assigned": len(kept), "layers": layers}
+
+
+@api_router.post("/defense/zone_repair")
+async def zone_repair(req: ZoneRepairRequest):
+    if req.points <= 0:
+        raise HTTPException(status_code=400, detail="Points must be positive")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = apply_energy_regen(doc)
+    doc = ensure_defense_state(doc)
+    zones = doc["defense"]["zones"]
+    z = next((x for x in zones if x["id"] == req.zone_id), None)
+    if not z:
+        raise HTTPException(status_code=404, detail="Zone not found")
+    missing = 100 - z["integrity"]
+    if missing <= 0:
+        return {"repaired": 0, "zone": z, "resources": doc["resources"]}
+    actual = min(missing, req.points)
+    cost_mat = actual * ZONE_REPAIR_MAT_PER_PT
+    cost_energy = max(1, (actual // 5) * ZONE_REPAIR_ENERGY_PER_5)
+    resources = doc["resources"]
+    if resources.get("materials", 0) < cost_mat:
+        raise HTTPException(status_code=400, detail=f"INSUFFICIENT MATERIALS: need {cost_mat}")
+    if resources.get("energy", 0) < cost_energy:
+        raise HTTPException(status_code=400, detail=f"INSUFFICIENT ENERGY: need {cost_energy}")
+    resources["materials"] -= cost_mat
+    resources["energy"] -= cost_energy
+    z["integrity"] = min(100, z["integrity"] + actual)
+    doc["defense"]["zones"] = zones
+    doc["defense"]["viability"] = compute_viability(zones)
+    await db.players.update_one({"id": req.player_id}, {"$set": {
+        "defense.zones": zones,
+        "defense.viability": doc["defense"]["viability"],
+        "resources": resources,
+        "resources_updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    return {"repaired": actual, "zone": z, "resources": resources, "viability": doc["defense"]["viability"]}
 
 
 app.add_middleware(

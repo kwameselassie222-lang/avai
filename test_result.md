@@ -452,3 +452,157 @@ agent_communication:
            - Optional: run an engage and confirm rule mult is applied when conditions match
 
         Do not test frontend. Backend-only.
+
+# ============ ITERATION 6 ADDITIONS ============
+
+backend:
+  - task: "Doctrines CRUD & deploy (POST /api/doctrines/save, /delete, /deploy; GET /api/doctrines/{id})"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Doctrines stored in defense.doctrines. Save validates robot ownership.
+            Deploy re-assigns robots to a layer atomically (removes from any layer first).
+            target_layer must be one of deep_space/orbital/atmosphere/ground.
+        - working: true
+          agent: "testing"
+          comment: |
+            PASSED all 12 doctrine tests.
+            - GET /doctrines/{new_player} → []
+            - GET on unknown player → 404
+            - POST /save without id → auto-generates 8-char hex id, doctrines length=1
+            - POST /save with same id + new name → updates in place, doctrines length still 1
+            - POST /save with unknown robot_id → 400 "Robot {id} not found for player"
+            - POST /save with target_layer='resource_zones' → 400 "Invalid target_layer"
+            - POST /save with target_layer='nope' → 400
+            - POST /deploy → returns {ok, layer, assigned=2, layers dict}. Robots appear in orbital.assigned_robots and are absent from all other combat layers. Confirmed via /defense/state.
+            - POST /deploy with layer_id override → moves robots from orbital to ground; removes from orbital.
+            - POST /deploy with bogus doctrine_id → 404
+            - POST /delete → doctrines list becomes empty on next GET.
+
+  - task: "Zone repair (POST /api/defense/zone_repair)"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Costs 3 materials per 1% integrity, 1 energy per 5%.
+            Caps at 100%. Updates viability. 400 on missing resources or invalid zone.
+        - working: true
+          agent: "testing"
+          comment: |
+            PASSED all 10 zone_repair tests.
+            - points=0 / points=-5 → 400 "Points must be positive"
+            - fully-healed zone → 200 with repaired=0
+            - unknown zone_id → 404
+            - unknown player_id → 404
+            - valid repair: damage water=30, points=20 → repaired=20, integrity=50, materials -60, energy -4 (100→96)
+            - integrity cap: damage biomass=90, points=30 → repaired=10 (capped), integrity=100, materials -30, energy -2
+            - min 1 energy: damage water=98, points=2 → cost_energy=max(1, 0)=1 correctly applied
+            - insufficient materials → 400 "INSUFFICIENT MATERIALS: need {N}" and zone unchanged
+            - insufficient energy → 400 "INSUFFICIENT ENERGY: need {N}" and zone unchanged
+            - viability recomputed and returned; increases after successful repair
+            NOTE: Because apply_energy_regen caps energy at ENERGY_REGEN_CAP=100, any zone-repair
+            request will effectively be limited to ~100 energy per call. Not a bug, just noting
+            for FE flow.
+
+  - task: "Apollyon ending includes archon history"
+    implemented: true
+    working: "NA"
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+        - working: "NA"
+          agent: "main"
+          comment: |
+            Extended prompt to Gemini includes DEFEATED / SPARED Archon names,
+            viability%, network_complete. No structural change—just richer prompt.
+
+frontend:
+  - task: "Archon cinematic overlay component"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/src/components/archon-cinematic.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+
+  - task: "Doctrines screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/defense/doctrines.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+
+  - task: "Zone repair screen"
+    implemented: true
+    working: "NA"
+    file: "/app/frontend/app/defense/zones.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+
+test_plan:
+  current_focus:
+    - "Doctrines CRUD & deploy (POST /api/doctrines/save, /delete, /deploy; GET /api/doctrines/{id})"
+    - "Zone repair (POST /api/defense/zone_repair)"
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Iteration 6 adds cinematics + doctrines + zone repair + apollyon prompt upgrade.
+        Backend-test the 2 new endpoint groups only (Apollyon prompt change is not testable via unit,
+        it's an LLM prompt edit — do NOT hit the LLM in tests).
+        
+        Doctrines:
+        - GET /api/doctrines/{new_player} → []
+        - POST /save (no id) → creates with generated id, returns list
+        - POST /save (with id + new name) → updates existing
+        - POST /save with bogus robot_id → 400
+        - POST /save with bogus target_layer → 400
+        - POST /deploy → assigns doctrine's robots to layer, removes them from any prior layer
+        - POST /deploy with bogus doctrine_id → 404
+        - POST /delete removes the doctrine
+        
+        Zone repair:
+        - POST /defense/zone_repair with 0 points → 400
+        - Full-integrity zone → returns repaired:0
+        - Damaged zone: correct cost math (3 mat/pt, 1 energy/5pt, min 1 energy)
+        - Insufficient materials → 400
+        - Insufficient energy → 400
+        - Updates viability
+
+    - agent: "testing"
+      message: |
+        Iteration 6 backend testing complete — 22/22 pytest tests PASSED (0 failures).
+        Test file: /app/backend/tests/test_iteration6.py
+        JUnit XML: /app/test_reports/pytest/iteration6_results.xml
+        JSON report: /app/test_reports/iteration_6.json
+        Coverage:
+          - Doctrines: empty-list, list-404, save-no-id (hex generated), save-with-id (update-in-place),
+            save-bogus-robot (400), save-bad-target_layer x2 (400), deploy-default-layer, deploy-layer-override,
+            deploy-bogus-id (404), delete-clears-list.
+          - Zone repair: points=0/-5 (400), full-healed (repaired:0), unknown zone/player (404),
+            valid math (3 mat/pt, 1 energy/5pt), integrity cap at 100, min-1-energy floor,
+            insufficient-materials (400 + no mutation), insufficient-energy (400 + no mutation),
+            viability recomputed & returned.
+        Did NOT hit Apollyon LLM endpoint (per instructions).
+        Observation (informational, not a bug): apply_energy_regen caps energy at
+        ENERGY_REGEN_CAP=100 on every zone_repair call, so callers cannot stockpile
+        energy above 100 between repair actions. If large multi-zone repairs are a UX
+        goal the FE should chain smaller repairs.
+        No blockers. Both iteration 6 backend tasks now working=true, needs_retesting=false.

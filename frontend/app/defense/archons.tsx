@@ -6,6 +6,7 @@ import { useRouter } from "expo-router";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api, storage, Archon, Robot, ArchonBattleResult } from "@/src/api";
 import { TerminalHeader, HudButton } from "@/src/components/hud";
+import { ArchonCinematic } from "@/src/components/archon-cinematic";
 
 const MECHANIC_LABELS: Record<string, string> = {
   summon: "SUMMONS DRONES EACH ROUND",
@@ -21,8 +22,10 @@ export default function ArchonsScreen() {
   const [loading, setLoading] = useState(true);
   const [selectedArchon, setSelectedArchon] = useState<Archon | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<string | null>(null);
+  const [showCinematic, setShowCinematic] = useState<Archon | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ArchonBattleResult | null>(null);
+  const [pendingAfterCinematic, setPendingAfterCinematic] = useState<Archon | null>(null);
 
   const load = useCallback(async () => {
     const id = await storage.getPlayerId();
@@ -169,6 +172,18 @@ export default function ArchonsScreen() {
   // List view
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
+      {showCinematic && (
+        <ArchonCinematic
+          archon={showCinematic}
+          onComplete={() => {
+            setShowCinematic(null);
+            if (pendingAfterCinematic) {
+              setSelectedArchon(pendingAfterCinematic);
+              setPendingAfterCinematic(null);
+            }
+          }}
+        />
+      )}
       <TerminalHeader
         title="DEFENSE // ARCHONS"
         subtitle="Apollyon's four commanders"
@@ -184,7 +199,11 @@ export default function ArchonsScreen() {
           return (
             <Pressable
               key={a.id}
-              onPress={() => !locked && !defeated && setSelectedArchon(a)}
+              onPress={() => {
+                if (locked || defeated) return;
+                setShowCinematic(a);
+                setPendingAfterCinematic(a);
+              }}
               disabled={locked || defeated}
               style={[
                 styles.archonListCard,

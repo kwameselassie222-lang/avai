@@ -103,3 +103,21 @@ Massive gameplay identity shift. The player is now Earth's Superintelligence, de
 ## New Screens (iteration 5)
 - `/defense/archons` — Archon list, cinematic engage, round log with reflects/summons/drain
 - `/defense/triage` — 3-zone attack, pick 2 to defend, outcome report
+
+## Iteration 6 (Cinematics + Doctrines + Zone Repair + Apollyon Rewrite)
+
+- **Cinematic Archon Intros** — Full-screen animated overlay before every Archon fight (icon scale-in, terminal signature lines, flash transition, tap-to-skip)
+- **Adaptive Fleet Doctrine** — Named robot loadouts saved on the player. Assign target layer, then deploy the whole loadout to that layer in one action
+- **Zone Repair Console** — Actively repair resource zones with materials (3/pt) + energy (1/5pt). Improves viability immediately
+- **Apollyon Cinematic Rewrite** — Final ending prompt now includes viability, network completion status, and which Archons were defeated vs spared. Each defeated Archon carries emotional echoes in the narrative
+
+## New endpoints (iteration 6)
+- `GET /api/doctrines/{id}`, `POST /api/doctrines/save`, `POST /api/doctrines/delete`, `POST /api/doctrines/deploy`
+- `POST /api/defense/zone_repair`
+
+## New screens (iteration 6)
+- `/defense/doctrines` — Editor + list + deploy
+- `/defense/zones` — Repair console + per-zone repair panel
+
+## New component
+- `/src/components/archon-cinematic.tsx` — reusable cinematic overlay

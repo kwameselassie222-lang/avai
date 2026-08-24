@@ -212,6 +212,15 @@ export type CascadeModifiers = {
   base_sensor_tier: number;
 };
 
+// ==== Iteration 6 — Doctrines, Zone Repair ====
+
+export type Doctrine = {
+  id?: string;
+  name: string;
+  robot_ids: string[];
+  target_layer?: LayerId | null;
+};
+
 export type Player = {
   id: string;
   codename: string;
@@ -538,6 +547,43 @@ export const api = {
   },
   async cascadeState(playerId: string): Promise<CascadeModifiers> {
     return j(await fetch(`${API}/defense/cascade/${playerId}`));
+  },
+
+  // ==== Iteration 6 — Doctrines & Zone Repair ====
+  async listDoctrines(playerId: string): Promise<Doctrine[]> {
+    return j(await fetch(`${API}/doctrines/${playerId}`));
+  },
+  async saveDoctrine(payload: { player_id: string; doctrine: Doctrine }): Promise<{ doctrine: Doctrine; doctrines: Doctrine[] }> {
+    const res = await fetch(`${API}/doctrines/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async deleteDoctrine(payload: { player_id: string; doctrine_id: string }): Promise<any> {
+    const res = await fetch(`${API}/doctrines/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async deployDoctrine(payload: { player_id: string; doctrine_id: string; layer_id?: LayerId }): Promise<any> {
+    const res = await fetch(`${API}/doctrines/deploy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async zoneRepair(payload: { player_id: string; zone_id: string; points: number }): Promise<{ repaired: number; zone: ResourceZone; resources: Resources; viability: number }> {
+    const res = await fetch(`${API}/defense/zone_repair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
   },
 };
 

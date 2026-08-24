@@ -219,6 +219,22 @@ export default function EarthAIConsole() {
             onPress={() => router.push("/defense/triage")}
             testID="cta-triage"
           />
+          <ActionCard
+            icon="wrench"
+            label="REPAIR ZONES"
+            sub={`${criticalZones} zone${criticalZones === 1 ? "" : "s"} need work`}
+            color={colors.success}
+            onPress={() => router.push("/defense/zones")}
+            testID="cta-zones"
+          />
+          <ActionCard
+            icon="shield-account"
+            label="DOCTRINES"
+            sub="Named loadouts"
+            color={colors.brandPrimary}
+            onPress={() => router.push("/defense/doctrines")}
+            testID="cta-doctrines"
+          />
         </View>
 
         {/* ==== NETWORK COMPLETION BAR ==== */}
