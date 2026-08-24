@@ -2,7 +2,7 @@ import { V2Level, V2Robot, V2Alien, V2Ability } from "@/src/api";
 
 export type Lane = "left" | "center" | "right";
 export type Side = "player" | "alien";
-export type SoundEvent = "deploy" | "hit" | "explode" | "ability" | "win" | "lose";
+export type SoundEvent = "deploy" | "hit" | "explode" | "ability" | "win" | "lose" | "combo" | "boss";
 
 export type Entity = {
   id: string;
@@ -61,6 +61,10 @@ export type BattleState = {
   events: string[];
   sound_queue: SoundEvent[];
   screen_shake: number; // decays over time (0..1)
+  recent_deploys: { lane: Lane; time: number }[]; // for combo tracking
+  combo: { lane: Lane; time: number; count: number } | null;
+  boss_intro_at: number | null; // set when boss first spawns
+  boss_intro_shown: boolean;
 };
 
 const ENERGY_REGEN_PER_SEC = 0.5;
@@ -133,8 +137,15 @@ export function initBattle(
     events: [],
     sound_queue: [],
     screen_shake: 0,
+    recent_deploys: [],
+    combo: null,
+    boss_intro_at: null,
+    boss_intro_shown: false,
   };
 }
+
+const COMBO_WINDOW_SEC = 4.0;
+const COMBO_ENERGY_REFUND = 2;
 
 export function deployRobot(state: BattleState, robotId: string, lane: Lane): boolean {
   if (!state.playing) return false;
@@ -154,6 +165,38 @@ export function deployRobot(state: BattleState, robotId: string, lane: Lane): bo
   state.events.push(`▮ ${r.name} deployed`);
   if (state.events.length > 8) state.events.shift();
   queueSound(state, "deploy");
+
+  // ---- Combo detection ----
+  // Prune old deploys and add new one
+  state.recent_deploys = state.recent_deploys.filter(
+    (d) => state.time - d.time <= COMBO_WINDOW_SEC
+  );
+  state.recent_deploys.push({ lane, time: state.time });
+  // Count same-lane deploys inside window
+  const sameLane = state.recent_deploys.filter((d) => d.lane === lane);
+  if (sameLane.length >= 3 && (!state.combo || state.combo.time < state.time - COMBO_WINDOW_SEC)) {
+    // Trigger combo bonus
+    state.combo = { lane, time: state.time, count: sameLane.length };
+    state.energy = Math.min(state.energy_max, state.energy + COMBO_ENERGY_REFUND);
+    // Buff same-lane robots for 3s (+30% atk via temporary stun-negative trick? No - directly bump atk)
+    for (const e of state.entities) {
+      if (e.side === "player" && e.lane === lane) {
+        e.atk = Math.round(e.atk * 1.3);
+      }
+    }
+    // Reset the deploy list so it doesn't retrigger every deploy
+    state.recent_deploys = state.recent_deploys.filter((d) => d.lane !== lane);
+    state.events.push(`◆ COMBO x${sameLane.length}! +${COMBO_ENERGY_REFUND}⚡ +30% ATK`);
+    if (state.events.length > 8) state.events.shift();
+    queueSound(state, "combo");
+    // Spawn a flashy particle chain in the lane
+    for (let i = 0; i < 5; i++) {
+      state.particles.push({
+        id: uid(), lane, y: 15 + i * 8,
+        color: "#FFEE55", size: 14, born_at: state.time + i * 0.05, ttl: 0.5, kind: "hit",
+      });
+    }
+  }
   return true;
 }
 
@@ -216,6 +259,12 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
     spawnAlien(state, { type: level.boss, lane: "center" }, level);
     state.events.push(`⚠ BOSS: ${state.aliens[level.boss!]?.name}`);
     if (state.events.length > 8) state.events.shift();
+    if (!state.boss_intro_shown) {
+      state.boss_intro_at = state.time;
+      state.boss_intro_shown = true;
+      state.screen_shake = 1;
+      queueSound(state, "boss");
+    }
   }
 
   const overclock = state.overclock_until > state.time;

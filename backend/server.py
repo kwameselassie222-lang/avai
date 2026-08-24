@@ -2748,12 +2748,11 @@ async def season_claim(req: SeasonClaimRequest):
 
 # 10 MVP levels
 V2_LEVELS = [
-    {"id": 1,  "name": "First Landing — Atlanta",   "world": 1, "difficulty": 1.0, "energy_start": 4, "target_time": 90, "waves": [
-        {"at": 2,  "type": "crawler", "lane": "center"},
-        {"at": 6,  "type": "crawler", "lane": "left"},
-        {"at": 12, "type": "crawler", "lane": "right"},
-        {"at": 20, "type": "crawler", "lane": "center"},
-    ], "core_hp": 300},
+    {"id": 1,  "name": "First Landing — Atlanta",   "world": 1, "difficulty": 1.0, "energy_start": 6, "target_time": 90, "waves": [
+        {"at": 4,  "type": "crawler", "lane": "center"},
+        {"at": 10, "type": "crawler", "lane": "left"},
+        {"at": 18, "type": "crawler", "lane": "right"},
+    ], "core_hp": 220},
     {"id": 2,  "name": "Washington Perimeter",       "world": 1, "difficulty": 1.15, "energy_start": 5, "target_time": 100, "waves": [
         {"at": 3,  "type": "crawler", "lane": "left"},
         {"at": 7,  "type": "spitter", "lane": "right"},

@@ -1,14 +1,18 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
-import { api, storage, V2Campaign, V2Config } from "@/src/api";
+import { api, storage, V2Campaign, V2Config, V2Robot } from "@/src/api";
 
 const ROBOT_ICONS: Record<string, string> = {
   scout: "run-fast", guardian: "shield", drone: "quadcopter", striker: "robot",
   sniper: "crosshairs", tank: "tank", titan: "robot-industrial",
+};
+const ROBOT_COLORS: Record<string, string> = {
+  scout: "#00E5FF", guardian: "#B57BFF", drone: "#00FF66", striker: "#FFB020",
+  sniper: "#FF7A00", tank: "#B0B4C0", titan: "#FF3366",
 };
 
 export default function RobotsScreen() {
@@ -16,6 +20,7 @@ export default function RobotsScreen() {
   const [camp, setCamp] = useState<V2Campaign | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [preview, setPreview] = useState<V2Robot | null>(null);
 
   const load = useCallback(async () => {
     const id = await storage.getPlayerId();
@@ -58,6 +63,9 @@ export default function RobotsScreen() {
 
   if (loading || !config || !camp) return <View style={styles.loader}><ActivityIndicator color={colors.brandPrimary} /></View>;
 
+  const previewUnlocked = preview ? camp.unlocked_robots.includes(preview.id) : false;
+  const previewLevel = preview ? (camp.robot_levels[preview.id] || 1) : 1;
+
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <View style={styles.header}>
@@ -74,9 +82,14 @@ export default function RobotsScreen() {
           const hp = Math.round(r.hp * (1 + (level - 1) * 0.08));
           const atk = Math.round(r.atk * (1 + (level - 1) * 0.08));
           return (
-            <View key={r.id} style={[styles.card, { borderColor: !unlocked ? colors.border : inDeck ? colors.brandPrimary : colors.borderStrong, opacity: unlocked ? 1 : 0.4 }]}>
+            <Pressable
+              key={r.id}
+              onPress={() => setPreview(r)}
+              style={[styles.card, { borderColor: !unlocked ? colors.border : inDeck ? colors.brandPrimary : colors.borderStrong, opacity: unlocked ? 1 : 0.55 }]}
+              testID={`robot-${r.id}`}
+            >
               <View style={styles.cardHeader}>
-                <MaterialCommunityIcons name={ROBOT_ICONS[r.id] as any || "robot"} size={30} color={unlocked ? colors.brandPrimary : colors.onSurfaceTertiary} />
+                <MaterialCommunityIcons name={ROBOT_ICONS[r.id] as any || "robot"} size={30} color={unlocked ? (ROBOT_COLORS[r.id] || colors.brandPrimary) : colors.onSurfaceTertiary} />
                 <View style={{ flex: 1, marginLeft: spacing.sm }}>
                   <Text style={styles.name}>{r.name}</Text>
                   <Text style={styles.flavor}>{r.flavor}</Text>
@@ -84,7 +97,10 @@ export default function RobotsScreen() {
                 {unlocked ? (
                   <View style={styles.lvlBadge}><Text style={styles.lvlText}>LV {level}</Text></View>
                 ) : (
-                  <View style={styles.lockBadge}><Text style={styles.lockText}>LVL {r.unlock_level}</Text></View>
+                  <View style={styles.lockBadge}>
+                    <MaterialCommunityIcons name="lock" size={10} color={colors.onSurfaceTertiary} />
+                    <Text style={styles.lockText}>LVL {r.unlock_level}</Text>
+                  </View>
                 )}
               </View>
               <View style={styles.statsRow}>
@@ -95,16 +111,21 @@ export default function RobotsScreen() {
               </View>
               {unlocked && (
                 <View style={styles.actionsRow}>
-                  <Pressable onPress={() => toggleDeck(r.id)} style={[styles.btn, { borderColor: inDeck ? colors.brandPrimary : colors.border }]}>
+                  <Pressable
+                    onPress={(e) => { e.stopPropagation?.(); toggleDeck(r.id); }}
+                    style={[styles.btn, { borderColor: inDeck ? colors.brandPrimary : colors.border }]}
+                    testID={`deck-${r.id}`}
+                  >
                     <MaterialCommunityIcons name={inDeck ? "check-circle" : "plus-circle-outline"} size={14} color={inDeck ? colors.brandPrimary : colors.onSurfaceSecondary} />
                     <Text style={[styles.btnText, { color: inDeck ? colors.brandPrimary : colors.onSurfaceSecondary }]}>
                       {inDeck ? "IN DECK" : "ADD TO DECK"}
                     </Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => upgrade(r.id)}
+                    onPress={(e) => { e.stopPropagation?.(); upgrade(r.id); }}
                     disabled={!canAfford || busy !== null || level >= 10}
                     style={[styles.btn, { borderColor: canAfford && level < 10 ? colors.success : colors.border, opacity: canAfford && level < 10 ? 1 : 0.4 }]}
+                    testID={`upgrade-${r.id}`}
                   >
                     <MaterialCommunityIcons name="arrow-up-bold" size={14} color={canAfford ? colors.success : colors.onSurfaceTertiary} />
                     <Text style={[styles.btnText, { color: canAfford ? colors.success : colors.onSurfaceTertiary }]}>
@@ -113,11 +134,59 @@ export default function RobotsScreen() {
                   </Pressable>
                 </View>
               )}
-            </View>
+            </Pressable>
           );
         })}
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Preview modal */}
+      <Modal transparent animationType="fade" visible={preview !== null} onRequestClose={() => setPreview(null)}>
+        <Pressable style={styles.previewBackdrop} onPress={() => setPreview(null)}>
+          {preview && (
+            <Pressable style={[styles.previewCard, { borderColor: ROBOT_COLORS[preview.id] || colors.brandPrimary }]} onPress={() => {}}>
+              <View style={styles.previewHero}>
+                <View style={[styles.previewIconWrap, { borderColor: ROBOT_COLORS[preview.id] || colors.brandPrimary, backgroundColor: `${ROBOT_COLORS[preview.id] || colors.brandPrimary}22` }]}>
+                  <MaterialCommunityIcons
+                    name={ROBOT_ICONS[preview.id] as any || "robot"}
+                    size={78}
+                    color={previewUnlocked ? (ROBOT_COLORS[preview.id] || colors.brandPrimary) : colors.onSurfaceTertiary}
+                  />
+                </View>
+                {!previewUnlocked && (
+                  <View style={styles.previewLockOverlay}>
+                    <MaterialCommunityIcons name="lock" size={40} color={colors.onSurface} />
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.previewName, { color: previewUnlocked ? colors.onSurface : colors.onSurfaceSecondary }]}>{preview.name}</Text>
+              <Text style={styles.previewKind}>{preview.kind === "air" ? "◆ AIR" : "◆ GROUND"} • RANGE {preview.range}</Text>
+              <Text style={styles.previewFlavor}>{preview.flavor}</Text>
+
+              <View style={styles.previewStats}>
+                <PreviewStat label="COST" value={`${preview.cost}⚡`} color={colors.warning} />
+                <PreviewStat label="HP" value={`${Math.round(preview.hp * (1 + (previewLevel - 1) * 0.08))}`} color={colors.success} />
+                <PreviewStat label="ATK" value={`${Math.round(preview.atk * (1 + (previewLevel - 1) * 0.08))}`} color={colors.brandSecondary} />
+                <PreviewStat label="SPEED" value={`${preview.speed.toFixed(1)}x`} color={colors.brandPrimary} />
+                <PreviewStat label="RATE" value={`${preview.atk_rate.toFixed(1)}s`} color={colors.brandPrimary} />
+              </View>
+
+              {!previewUnlocked && (
+                <View style={styles.previewUnlockHint}>
+                  <MaterialCommunityIcons name="key-variant" size={16} color={colors.warning} />
+                  <Text style={styles.previewUnlockText}>
+                    UNLOCKS BY BEATING LEVEL {preview.unlock_level - 1}
+                  </Text>
+                </View>
+              )}
+
+              <Pressable onPress={() => setPreview(null)} style={styles.previewClose}>
+                <Text style={styles.previewCloseText}>CLOSE</Text>
+              </Pressable>
+            </Pressable>
+          )}
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -127,6 +196,14 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
     <View style={styles.stat}>
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={[styles.statVal, { color }]}>{value}</Text>
+    </View>
+  );
+}
+function PreviewStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <View style={styles.previewStat}>
+      <Text style={styles.previewStatLabel}>{label}</Text>
+      <Text style={[styles.previewStatVal, { color }]}>{value}</Text>
     </View>
   );
 }
@@ -144,7 +221,7 @@ const styles = StyleSheet.create({
   flavor: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 2 },
   lvlBadge: { borderWidth: 1, borderColor: colors.brandPrimary, paddingHorizontal: 6, paddingVertical: 2 },
   lvlText: { fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: 10, letterSpacing: 1 },
-  lockBadge: { borderWidth: 1, borderColor: colors.onSurfaceTertiary, paddingHorizontal: 6, paddingVertical: 2 },
+  lockBadge: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: colors.onSurfaceTertiary, paddingHorizontal: 6, paddingVertical: 2 },
   lockText: { fontFamily: fonts.displayBold, color: colors.onSurfaceTertiary, fontSize: 10, letterSpacing: 1 },
   statsRow: { flexDirection: "row", justifyContent: "space-around", marginTop: spacing.sm },
   stat: { alignItems: "center" },
@@ -153,4 +230,69 @@ const styles = StyleSheet.create({
   actionsRow: { flexDirection: "row", gap: 6, marginTop: spacing.sm },
   btn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, borderWidth: 1, paddingVertical: 6, borderRadius: radius.md },
   btnText: { fontFamily: fonts.displayBold, fontSize: 10, letterSpacing: 1 },
+
+  // Preview modal
+  previewBackdrop: {
+    flex: 1, backgroundColor: "rgba(5,8,16,0.85)",
+    alignItems: "center", justifyContent: "center", padding: spacing.lg,
+  },
+  previewCard: {
+    width: "100%", maxWidth: 360, borderWidth: 2, borderRadius: radius.md,
+    backgroundColor: colors.surface, padding: spacing.lg, alignItems: "center",
+  },
+  previewHero: {
+    marginTop: spacing.sm, marginBottom: spacing.md, position: "relative",
+  },
+  previewIconWrap: {
+    width: 140, height: 140, borderWidth: 2, borderRadius: 70,
+    alignItems: "center", justifyContent: "center",
+  },
+  previewLockOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(9,10,13,0.55)", borderRadius: 70,
+  },
+  previewName: {
+    fontFamily: fonts.displayBold, fontSize: fontSize.xl, letterSpacing: 3,
+  },
+  previewKind: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: 11,
+    letterSpacing: 2, marginTop: 4,
+  },
+  previewFlavor: {
+    fontFamily: fonts.body, color: colors.onSurfaceSecondary,
+    fontSize: fontSize.sm, textAlign: "center", marginTop: spacing.sm,
+    lineHeight: 20, paddingHorizontal: spacing.sm,
+  },
+  previewStats: {
+    flexDirection: "row", justifyContent: "space-around",
+    width: "100%", marginTop: spacing.md, marginBottom: spacing.sm,
+    paddingVertical: spacing.sm, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border,
+  },
+  previewStat: { alignItems: "center" },
+  previewStatLabel: {
+    fontFamily: fonts.display, color: colors.onSurfaceTertiary, fontSize: 9, letterSpacing: 1,
+  },
+  previewStatVal: {
+    fontFamily: fonts.displayBold, fontSize: fontSize.base, marginTop: 2,
+  },
+  previewUnlockHint: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderColor: colors.warning,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    borderRadius: radius.md, marginTop: spacing.sm,
+    backgroundColor: "rgba(255,176,32,0.08)",
+  },
+  previewUnlockText: {
+    fontFamily: fonts.displayBold, color: colors.warning,
+    fontSize: fontSize.sm, letterSpacing: 1.5,
+  },
+  previewClose: {
+    marginTop: spacing.md, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.xl, paddingVertical: spacing.sm, borderRadius: radius.md,
+  },
+  previewCloseText: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: fontSize.sm, letterSpacing: 2,
+  },
 });

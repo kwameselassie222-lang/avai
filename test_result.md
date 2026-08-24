@@ -655,3 +655,58 @@ agent_communication:
            - Tap NEXT on victory → goes to next level.
         4. Ensure NO regressions in Home / Robots / Map / Commander tabs.
         Test credentials: none required (auto-init by codename).
+
+## Iteration 10 — Feel & Progression (June 2026)
+##
+## test_result:
+##   backend:
+##     - task: "L1 tuning"
+##       implemented: true
+##       working: "NA"
+##       file: "/app/backend/server.py"
+##       comment: "L1 core_hp 300→220, energy_start 4→6, waves reduced 4→3 for winnable tutorial"
+##   frontend:
+##     - task: "Combo deploy detection"
+##       implemented: true
+##       working: "NA"
+##       file: "/app/frontend/src/game/engine.ts, /app/frontend/app/battle.tsx"
+##       comment: |
+##         Engine tracks recent deploys in a 4s window. When 3 in same lane, refunds +2⚡
+##         and buffs same-lane robots +30% ATK. Golden 'COMBO x3' banner + combo.wav +
+##         5 sparkle particles + heavy haptic.
+##     - task: "Boss cinematic"
+##       implemented: true
+##       working: "NA"
+##       file: "/app/frontend/src/game/engine.ts, /app/frontend/app/battle.tsx"
+##       comment: |
+##         L10 hive_queen spawn triggers 2s cinematic: dark overlay + slam-scaled alien icon +
+##         'HIVE QUEEN AWAKENED' text + boss.wav + max screen shake + warning haptic. One-shot per battle.
+##     - task: "Robot roster preview modal"
+##       implemented: true
+##       working: "NA"
+##       file: "/app/frontend/app/(tabs)/builder.tsx"
+##       comment: |
+##         Tapping any robot card opens a fullscreen preview: large colored icon (lock overlay if
+##         unlocked=false), name, kind, range, flavor, all stats (Cost/HP/Atk/Speed/Rate),
+##         and 'UNLOCKS BY BEATING LEVEL X' hint for locked. CLOSE dismisses. Backdrop tap dismisses.
+
+agent_communication:
+    - agent: "main"
+      message: |
+        Iteration 10 — 4 new features. Frontend focus (backend only tune to L1).
+        Please validate:
+        1. Home → codename "IT10TEST" → ACTIVATE → /command
+        2. /builder (Robots tab): tap the GUARDIAN card. Preview modal should open with lock icon overlay,
+           purple accent, "UNLOCKS BY BEATING LEVEL 1" hint. CLOSE button dismisses.
+        3. Tap SCOUT card → preview modal shows unlocked (no lock), stats + flavor. Close.
+        4. /battle?level=1 — L1 should be much easier: 3 crawlers instead of 4, starting energy 6, core_hp 220.
+           Deploy 3 scouts to CENTER lane rapidly (within 4 seconds). Expect a "COMBO x3" banner
+           in gold to appear in the middle of the field, +2 energy refund, +30% ATK on that lane's robots.
+           If you can only reach it after energy regen, that's fine.
+        5. Battle should be more winnable now — try to reach VICTORY overlay with stars.
+        6. /battle?level=10 (if unlocked; if not, mock the request by directly going to /battle?level=10):
+           observe that after ~46s, HIVE QUEEN boss spawns with a 2-second cinematic overlay
+           (dark tint + large alien icon + "HIVE QUEEN AWAKENED" text + slam-in animation).
+        7. All 9 WAV files should be delivered (add combo.wav and boss.wav to the previous 7).
+
+        Backend regression: /api/v2/config should return the tuned L1.

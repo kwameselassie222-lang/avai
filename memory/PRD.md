@@ -233,3 +233,43 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
 - +PARTS reward badge with warning color
 - Robot-unlocked banner when a new bot is earned
 - MAP / NEXT (or RETRY) actions
+
+## Iteration 10 — Feel & Progression (June 2026)
+
+### Level 1 Tuning (tutorial-friendly)
+- `energy_start`: 4 → 6 (players can afford 3 scouts to combo immediately)
+- `core_hp`: 300 → 220 (destructible in a comfortable window)
+- Waves: 4 → 3 crawlers (fewer overwhelming threats)
+
+### Robot Roster Preview Modal (Robots tab)
+- Tap any card (locked or unlocked) opens a full-screen preview:
+  - Large colored icon (with lock overlay if locked)
+  - Name • ◆ GROUND / ◆ AIR • Range
+  - Flavor description
+  - Full stat row: COST / HP / ATK / SPEED / RATE
+  - "🔑 UNLOCKS BY BEATING LEVEL X" hint for locked robots
+- Backdrop tap or CLOSE button dismisses
+- Inner buttons (Deck/Upgrade) stopPropagation so they don't open the preview
+
+### Combo Deploys
+- Engine tracks `recent_deploys: {lane, time}[]` in a 4-second sliding window
+- 3+ deploys in the same lane within window → combo trigger:
+  - +2⚡ energy refund (capped at 10)
+  - +30% ATK to all same-lane player robots
+  - Golden "COMBO x3" banner fades over 1.4s
+  - `combo.wav` (rising 3-note arpeggio) + heavy haptic
+  - 5 golden sparkle particles cascade up the lane
+
+### Boss Cinematic (L10)
+- On first HIVE QUEEN spawn (~t=45s of L10):
+  - Dark-red overlay, giant alien icon
+  - "HIVE QUEEN / AWAKENED" text with slam-in scale + settle + fade (~2s total)
+  - Max screen shake + `boss.wav` (deep sub-drop + metallic clang + rumble)
+  - Warning haptic notification
+- One-shot per battle (guarded by `boss_intro_shown`)
+
+### Refactor — Game Loop Race Fix
+- Migrated `state` from `useState` to a `useRef<BattleState>` (source of truth)
+- RAF loop mutates in place & calls `forceRender((n) => n + 1)` at frame end
+- `deployRobot` / `useAbility` mutate the same ref (no race with in-flight setState)
+- Effect deps simplified to `[ready, level]` — the RAF no longer restarts every frame

@@ -22,6 +22,8 @@ const SFX = {
   ability: require("../assets/sfx/ability.wav"),
   win: require("../assets/sfx/win.wav"),
   lose: require("../assets/sfx/lose.wav"),
+  combo: require("../assets/sfx/combo.wav"),
+  boss: require("../assets/sfx/boss.wav"),
 };
 const BG_LOOP = require("../assets/sfx/bg_loop.wav");
 
@@ -32,7 +34,10 @@ export default function BattleScreen() {
   const [config, setConfig] = useState<V2Config | null>(null);
   const [camp, setCamp] = useState<V2Campaign | null>(null);
   const [level, setLevel] = useState<V2Level | null>(null);
-  const [state, setState] = useState<BattleState | null>(null);
+  const [ready, setReady] = useState(false);
+  // Frame counter used purely to force re-renders — the source of truth lives in stateRef
+  const [, forceRender] = useState(0);
+  const stateRef = useRef<BattleState | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<string | null>(null);
   const [rewardShown, setRewardShown] = useState(false);
   const [result, setResult] = useState<{
@@ -51,11 +56,15 @@ export default function BattleScreen() {
   const abilityP = useAudioPlayer(SFX.ability);
   const winP = useAudioPlayer(SFX.win);
   const loseP = useAudioPlayer(SFX.lose);
+  const comboP = useAudioPlayer(SFX.combo);
+  const bossP = useAudioPlayer(SFX.boss);
   const soundsRef = useRef<Record<SoundEvent, ReturnType<typeof useAudioPlayer>>>({
-    deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP, win: winP, lose: loseP,
+    deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP,
+    win: winP, lose: loseP, combo: comboP, boss: bossP,
   });
   soundsRef.current = {
-    deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP, win: winP, lose: loseP,
+    deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP,
+    win: winP, lose: loseP, combo: comboP, boss: bossP,
   };
 
   // Throttling for hit sfx so we don't spam the audio engine
@@ -74,7 +83,7 @@ export default function BattleScreen() {
   }, []);
 
   useEffect(() => {
-    if (!state) return;
+    if (!ready) return;
     try {
       bgPlayer.loop = true;
       bgPlayer.volume = 0.35;
@@ -83,7 +92,7 @@ export default function BattleScreen() {
     return () => {
       try { bgPlayer.pause(); } catch {}
     };
-  }, [state !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const playSfx = (kind: SoundEvent) => {
     const p = soundsRef.current[kind];
@@ -98,6 +107,8 @@ export default function BattleScreen() {
       } else if (kind === "deploy") { p.volume = 0.55; }
       else if (kind === "explode") { p.volume = 0.7; }
       else if (kind === "ability") { p.volume = 0.7; }
+      else if (kind === "combo") { p.volume = 0.75; try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {}); } catch {} }
+      else if (kind === "boss") { p.volume = 0.85; try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {} }
       else { p.volume = 0.8; }
       p.seekTo(0);
       p.play();
@@ -106,10 +117,12 @@ export default function BattleScreen() {
 
   // Load config & init battle
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       const id = await storage.getPlayerId();
       if (!id) return;
       const [p, c] = await Promise.all([api.v2Player(id), api.v2Config()]);
+      if (cancelled) return;
       const L = c.levels.find((x) => x.id === levelId) || c.levels[0];
       setConfig(c); setCamp(p.campaign); setLevel(L);
       const deck = (p.campaign.deck && p.campaign.deck.length > 0)
@@ -121,65 +134,77 @@ export default function BattleScreen() {
         st.earth_max_hp = Math.round(st.earth_max_hp * (1 + stage.hp_bonus / 100));
         st.earth_hp = st.earth_max_hp;
       }
-      setState(st);
+      stateRef.current = st;
+      setReady(true);
     })();
     return () => {
+      cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
   }, [levelId]);
 
-  // Game loop
+  // Game loop — single stable RAF driven only by level/ready. Reads/writes stateRef.
   useEffect(() => {
-    if (!state || !level) return;
-    if (state.outcome) return;
+    if (!ready || !level) return;
+    lastTsRef.current = 0;
     const loop = (ts: number) => {
       if (paused.current) { rafRef.current = requestAnimationFrame(loop); return; }
+      const st = stateRef.current;
+      if (!st || st.outcome) { rafRef.current = null; return; }
       const last = lastTsRef.current || ts;
       const dt = Math.min(0.08, (ts - last) / 1000);
       lastTsRef.current = ts;
-      const newState = tick({ ...state, entities: state.entities.map((e) => ({ ...e })), particles: [...state.particles] }, level, dt);
+      tick(st, level, dt); // mutates in place
       // Drain sounds
-      const toPlay = drainSounds(newState);
+      const toPlay = drainSounds(st);
       for (const s of toPlay) playSfx(s);
-      setState({ ...newState });
-      if (!newState.outcome) rafRef.current = requestAnimationFrame(loop);
+      // Force React re-render for this frame
+      forceRender((n) => (n + 1) & 0xffff);
+      if (!st.outcome) {
+        rafRef.current = requestAnimationFrame(loop);
+      } else {
+        rafRef.current = null;
+      }
     };
     rafRef.current = requestAnimationFrame(loop);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state?.time, level, state?.outcome]);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    };
+  }, [ready, level]);
 
-  // Handle outcome — report to server once
+  // Handle outcome — report to server once. Watches stateRef via forceRender frame tick.
+  const outcome = stateRef.current?.outcome || null;
   useEffect(() => {
     (async () => {
-      if (!state || !state.outcome || !level || !camp || rewardShown) return;
+      const st = stateRef.current;
+      if (!st || !st.outcome || !level || !camp || rewardShown) return;
       setRewardShown(true);
       try { bgPlayer.pause(); } catch {}
       try {
-        Haptics.notificationAsync(state.outcome === "win"
+        Haptics.notificationAsync(st.outcome === "win"
           ? Haptics.NotificationFeedbackType.Success
           : Haptics.NotificationFeedbackType.Error).catch(() => {});
       } catch {}
       const id = await storage.getPlayerId();
       if (!id) return;
-      const stars = computeStars(state, level);
+      const stars = computeStars(st, level);
       try {
         const res = await api.v2BattleComplete({
           player_id: id,
           level_id: level.id,
-          victory: state.outcome === "win",
+          victory: st.outcome === "win",
           stars,
-          time_taken_sec: state.time,
-          core_hp_remaining_pct: (state.earth_hp / state.earth_max_hp) * 100,
+          time_taken_sec: st.time,
+          core_hp_remaining_pct: (st.earth_hp / st.earth_max_hp) * 100,
         });
         setResult({
-          victory: state.outcome === "win",
+          victory: st.outcome === "win",
           stars,
           parts: res.parts_awarded || 0,
           unlocked: res.unlocked_robot || null,
         });
-        // Animate stars in one at a time (win only)
-        if (state.outcome === "win" && stars > 0) {
+        if (st.outcome === "win" && stars > 0) {
           for (let i = 1; i <= stars; i++) {
             setTimeout(() => setStarsShown(i), 350 * i);
           }
@@ -188,31 +213,32 @@ export default function BattleScreen() {
         Alert.alert("SYNC FAILED", String(e.message));
       }
     })();
-  }, [state?.outcome, camp, level, router, rewardShown, state, bgPlayer]);
+  }, [outcome, camp, level, router, rewardShown, bgPlayer]);
 
-  if (!state || !level || !config || !camp) {
+  if (!ready || !level || !config || !camp || !stateRef.current) {
     return <View style={styles.loader}><ActivityIndicator color={colors.brandPrimary} /></View>;
   }
 
+  const state = stateRef.current;
+
   const deployAt = (lane: Lane) => {
-    if (!selectedRobot) return;
-    const newState = { ...state, entities: state.entities.map((e) => ({ ...e })), particles: [...state.particles] };
-    const ok = deployRobot(newState, selectedRobot, lane);
+    if (!selectedRobot || !stateRef.current) return;
+    const ok = deployRobot(stateRef.current, selectedRobot, lane);
     if (ok) {
       try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}); } catch {}
-      const toPlay = drainSounds(newState);
+      const toPlay = drainSounds(stateRef.current);
       for (const s of toPlay) playSfx(s);
+      forceRender((n) => (n + 1) & 0xffff);
     }
-    setState(newState);
   };
 
   const triggerAbility = () => {
-    if (!state.ability || state.ability_charge < 1) return;
-    const ns = applyAbility({ ...state, entities: state.entities.map((e) => ({ ...e })), particles: [...state.particles] });
+    if (!stateRef.current || !stateRef.current.ability || stateRef.current.ability_charge < 1) return;
+    applyAbility(stateRef.current);
     try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {}); } catch {}
-    const toPlay = drainSounds(ns);
+    const toPlay = drainSounds(stateRef.current);
     for (const s of toPlay) playSfx(s);
-    setState({ ...ns });
+    forceRender((n) => (n + 1) & 0xffff);
   };
 
   const deck = camp.deck.length > 0 ? camp.deck : camp.unlocked_robots.slice(0, 6);
@@ -337,6 +363,38 @@ export default function BattleScreen() {
         <View style={styles.earthBase}>
           <MaterialCommunityIcons name="earth" size={40} color={colors.brandPrimary} />
         </View>
+
+        {/* Combo banner (fades out after 1.4s) */}
+        {state.combo && state.time - state.combo.time < 1.4 && (
+          <View pointerEvents="none" style={[
+            styles.comboBanner,
+            { opacity: Math.max(0, 1 - (state.time - state.combo.time) / 1.4) },
+          ]}>
+            <MaterialCommunityIcons name="fire" size={22} color="#FFEE55" />
+            <Text style={styles.comboText}>COMBO x{state.combo.count}</Text>
+            <Text style={styles.comboSub}>+{2}⚡  +30% ATK</Text>
+          </View>
+        )}
+
+        {/* Boss cinematic (2s slam-in) */}
+        {state.boss_intro_at !== null && state.time - state.boss_intro_at < 2.0 && (() => {
+          const age = state.time - (state.boss_intro_at || 0);
+          const scale = age < 0.35
+            ? 0.2 + (age / 0.35) * 1.6   // slam-in
+            : age < 1.4
+              ? 1.8 - (age - 0.35) * 0.6  // settle
+              : 1.2 * (1 - (age - 1.4) / 0.6); // fade
+          const opacity = age > 1.4 ? Math.max(0, 1 - (age - 1.4) / 0.6) : 1;
+          return (
+            <View pointerEvents="none" style={styles.bossOverlay}>
+              <View style={{ transform: [{ scale }], opacity, alignItems: "center" }}>
+                <MaterialCommunityIcons name="alien" size={90} color={colors.brandSecondary} />
+                <Text style={styles.bossTitle}>HIVE QUEEN</Text>
+                <Text style={styles.bossSub}>AWAKENED</Text>
+              </View>
+            </View>
+          );
+        })()}
       </View>
 
       {/* Bottom HUD */}
@@ -457,7 +515,8 @@ export default function BattleScreen() {
                     setRewardShown(false);
                     setResult(null);
                     setStarsShown(0);
-                    setState(null);
+                    stateRef.current = null;
+                    setReady(false);
                     setSelectedRobot(null);
                     router.replace(`/battle?level=${nextId}`);
                   }}
@@ -618,5 +677,38 @@ const styles = StyleSheet.create({
   },
   actionText: {
     fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: fontSize.sm, letterSpacing: 2,
+  },
+
+  // Combo banner
+  comboBanner: {
+    position: "absolute", top: "45%", left: "50%",
+    transform: [{ translateX: -80 }, { translateY: -30 }],
+    width: 160, alignItems: "center", justifyContent: "center",
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(255,238,85,0.15)",
+    borderWidth: 2, borderColor: "#FFEE55", borderRadius: radius.md,
+  },
+  comboText: {
+    fontFamily: fonts.displayBold, color: "#FFEE55", fontSize: fontSize.lg,
+    letterSpacing: 3, marginTop: 2,
+  },
+  comboSub: {
+    fontFamily: fonts.displayBold, color: colors.warning, fontSize: 10, letterSpacing: 2, marginTop: 2,
+  },
+
+  // Boss overlay
+  bossOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(20,0,10,0.7)",
+    alignItems: "center", justifyContent: "center",
+  },
+  bossTitle: {
+    fontFamily: fonts.displayBold, color: colors.brandSecondary,
+    fontSize: fontSize.xxxl, letterSpacing: 8, marginTop: spacing.sm,
+    textShadowColor: colors.brandSecondary, textShadowRadius: 12,
+  },
+  bossSub: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: fontSize.lg, letterSpacing: 6, marginTop: 4,
   },
 });
