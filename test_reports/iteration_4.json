@@ -1,0 +1,71 @@
+{
+  "summary": "Iteration 4 Planetary Defense backend fully tested. 23/23 pytest tests pass. All 10 new endpoints verified plus edge cases (invalid layer, no-matching-wave, duplicate node build, insufficient resources, legacy player auto-bootstrap, apollyon_victory via viability<=25).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration4.py",
+    "/app/test_reports/pytest/iteration4_results.xml"
+  ],
+  "endpoints_covered": [
+    "GET /api/defense/config",
+    "GET /api/defense/state/{player_id}",
+    "POST /api/defense/assign",
+    "POST /api/defense/unassign",
+    "POST /api/defense/repair",
+    "POST /api/defense/protocols",
+    "POST /api/invasion/scan",
+    "POST /api/invasion/engage",
+    "POST /api/network/build",
+    "POST /api/defense/reset/{player_id}",
+    "GET /api/player/{player_id} (legacy defense bootstrap)"
+  ],
+  "test_scenarios_verified": [
+    "defense/config returns 5 layers in penetration order with max_hp 500/400/300/250/200",
+    "defense/config returns 7 zones with weights summing to 100, 8 network nodes",
+    "New player defense state: viability=100, sensor_tier=1, network_progress=[], protocols=[], layers full-HP, zones=100%",
+    "State 404 for unknown player_id",
+    "Legacy player doc without `defense` auto-bootstraps on /player/{id} and /defense/state/{id}",
+    "Assign robot to orbital + ground; reassignment removes robot from previous layer",
+    "Assign to layer_id='resource_zones' -> 400 Invalid layer",
+    "Assign to bogus layer 'moon_base' -> 400",
+    "Unassign works and is idempotent",
+    "Repair fully-healed layer returns repaired=0",
+    "Repair with layer_id='resource_zones' -> 400",
+    "Protocol save round-trip; server assigns rule id when missing; persists across state fetch",
+    "Tier-1 scan: intel.level=1, breakdown=None, unknown_signatures populated, decoys shown as type_display='unknown'",
+    "Engage without matching wave -> 400 'No matching wave. Scan first.'",
+    "Full scan->engage flow: response includes wave_id, outcome, log, viability_after, layers_after, zones_after, adaptations, rewards, resources",
+    "Same wave_id cannot be engaged twice (last_wave cleared after engage)",
+    "Network build deep_space_array: sensor_tier upgrades 1->2, deep_space.max_hp increases exactly +15%",
+    "After sensor upgrade, next scan shows intel.level=2 with breakdown populated",
+    "Duplicate node build -> 400 'Node already built'",
+    "Insufficient resources -> 400 with detail 'Need N <RESOURCE>'",
+    "Unknown node id -> 404",
+    "defense/reset restores viability=100, sensor_tier=1, network_progress=[], layers full HP, zones=100%",
+    "Repeated undefended waves eventually reach viability<=25 -> outcome='apollyon_victory'"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note: /defense/repair fails with 400 when partial-repair funds exist. Repair is all-or-nothing; consider partial-repair for UX (informational only).",
+    "Note: /invasion/engage clears defense.last_wave after use, so replaying the same wave_id fails. This is intended per spec; documenting for FE.",
+    "Note: Adaptations only trigger when a weapon has been used >=5 times (weapon_usage counter). Requires either battles or repeated engages to observe. Verified indirectly."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration4.py (new)",
+    "/app/test_reports/pytest/iteration4_results.xml (new)",
+    "/app/test_result.md (statuses updated)"
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "not tested per request"},
+  "seed_data_creation": "Created ephemeral TEST_IT4_* players and TEST_LEGACY_* raw docs. Robots prefixed TEST_R{i}. All isolated via unique codenames.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 4 backend is green. If retesting, run: pytest backend/tests/test_iteration4.py -v. Tests are parallelism-safe (each critical test calls /defense/reset before its assertions). Player fixture is module-scoped and uses _mint_resources() to bypass grind. Frontend was intentionally NOT tested (user will verify via Expo Go)."
+}

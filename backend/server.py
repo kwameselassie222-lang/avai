@@ -247,6 +247,7 @@ class Player(BaseModel):
     apollyon: Dict[str, Any] = Field(
         default_factory=lambda: {"unlocked": False, "phase": 0, "completed": False, "decision": None, "ending": None}
     )
+    defense: Optional[Dict[str, Any]] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -485,6 +486,7 @@ async def init_player(payload: PlayerInit):
         if "apollyon" not in existing:
             existing["apollyon"] = {"unlocked": False, "phase": 0, "completed": False, "decision": None, "ending": None}
         existing = apply_energy_regen(existing)
+        existing = ensure_defense_state(existing)
         existing["apollyon"]["unlocked"] = existing.get("generation", 1) >= APOLLYON_MIN_GEN
         await db.players.update_one(
             {"id": existing["id"]},
@@ -495,12 +497,14 @@ async def init_player(payload: PlayerInit):
                 "weapon_usage": existing["weapon_usage"],
                 "regions": existing["regions"],
                 "apollyon": existing["apollyon"],
+                "defense": existing["defense"],
             }},
         )
         return Player(**existing)
 
     p = Player(codename=codename)
     p.resources_updated_at = datetime.now(timezone.utc).isoformat()
+    p.defense = default_defense_state()
     await db.players.insert_one(p.model_dump())
     return p
 
@@ -519,6 +523,7 @@ async def get_player(player_id: str):
     if "apollyon" not in doc:
         doc["apollyon"] = {"unlocked": False, "phase": 0, "completed": False, "decision": None, "ending": None}
     doc = apply_energy_regen(doc)
+    doc = ensure_defense_state(doc)
     doc["generation"] = compute_generation(doc["resources"].get("research", 0))
     doc["apollyon"]["unlocked"] = doc["generation"] >= APOLLYON_MIN_GEN
     await db.players.update_one(
@@ -529,6 +534,7 @@ async def get_player(player_id: str):
             "generation": doc["generation"],
             "regions": doc["regions"],
             "apollyon": doc["apollyon"],
+            "defense": doc["defense"],
         }},
     )
     return Player(**doc)
@@ -1053,6 +1059,665 @@ def _apollyon_fallback_ending(decision: str, codename: str) -> str:
         ),
     }
     return endings.get(decision, "> ENDING UNAVAILABLE")
+
+
+# ============================================================
+# ITERATION 4 — PLANETARY DEFENSE (Earth AI Console)
+# ============================================================
+
+# 5 defense layers, in penetration order
+LAYERS_ORDER = ["deep_space", "orbital", "atmosphere", "ground", "resource_zones"]
+LAYERS_CONFIG = {
+    "deep_space": {"name": "Deep Space", "max_hp": 500, "icon": "satellite-variant"},
+    "orbital":    {"name": "Orbital",    "max_hp": 400, "icon": "satellite-uplink"},
+    "atmosphere": {"name": "Atmosphere", "max_hp": 300, "icon": "weather-cloudy"},
+    "ground":     {"name": "Ground",     "max_hp": 250, "icon": "shield-home"},
+    "resource_zones": {"name": "Resource Zones", "max_hp": 200, "icon": "earth"},
+}
+
+# 7 resource zones — weights sum to 100 → viability %
+ZONES_CONFIG = [
+    {"id": "water",      "name": "Freshwater",       "icon": "water",           "weight": 18, "color": "#00B8FF"},
+    {"id": "energy",     "name": "Energy Grid",      "icon": "lightning-bolt",  "weight": 16, "color": "#FFB020"},
+    {"id": "biomass",    "name": "Biomass",          "icon": "leaf",            "weight": 14, "color": "#00FF66"},
+    {"id": "minerals",   "name": "Minerals",         "icon": "diamond-stone",   "weight": 13, "color": "#B57BFF"},
+    {"id": "industry",   "name": "Industry",         "icon": "factory",         "weight": 14, "color": "#FF7A00"},
+    {"id": "rare",       "name": "Rare Materials",   "icon": "cube-scan",       "weight": 13, "color": "#FF3366"},
+    {"id": "tech",       "name": "Tech Infra",       "icon": "server-network",  "weight": 12, "color": "#00E5FF"},
+]
+VIABILITY_CRITICAL = 25.0  # below this → aliens win
+
+# Planetary Defense Network research tree — complete all 8 to enable Peace
+NETWORK_NODES = [
+    {"id": "deep_space_array",   "name": "Deep-Space Detection Array", "icon": "radar",             "cost": {"research": 40,  "compute": 20}, "layer": "deep_space"},
+    {"id": "orbital_lasers",     "name": "Orbital Laser Grid",         "icon": "target-variant",    "cost": {"research": 60,  "materials": 150, "energy": 50}, "layer": "orbital"},
+    {"id": "atmo_interceptors",  "name": "Atmospheric Interceptors",   "icon": "airplane",          "cost": {"research": 50,  "materials": 200}, "layer": "atmosphere"},
+    {"id": "ground_mesh",        "name": "Ground AI Mesh",             "icon": "hexagon-multiple",  "cost": {"research": 80,  "compute": 60},  "layer": "ground"},
+    {"id": "quantum_sensors",    "name": "Quantum Sensor Web",         "icon": "atom-variant",      "cost": {"research": 120, "compute": 80}, "layer": None},
+    {"id": "cyber_firewall",     "name": "Cyber Firewall",             "icon": "shield-lock",       "cost": {"research": 90,  "compute": 100}, "layer": None},
+    {"id": "resource_shielding", "name": "Resource-Zone Shielding",    "icon": "shield-earth",      "cost": {"research": 100, "materials": 250}, "layer": "resource_zones"},
+    {"id": "alien_tech",         "name": "Alien-Tech Integration",     "icon": "dna",               "cost": {"research": 180, "compute": 80,  "materials": 200}, "layer": None},
+]
+
+# Alien ship types used in invasion waves
+SHIP_TYPES = {
+    "scout":     {"label": "Scout",     "hp": 15, "power": 8,  "target": None,    "harvest": 0,  "stealth": 0.0},
+    "harvester": {"label": "Harvester", "hp": 45, "power": 12, "target": "any",   "harvest": 12, "stealth": 0.0},
+    "destroyer": {"label": "Destroyer", "hp": 80, "power": 22, "target": "layer", "harvest": 4,  "stealth": 0.0},
+    "decoy":     {"label": "Decoy",     "hp": 8,  "power": 2,  "target": None,    "harvest": 0,  "stealth": 0.0},
+    "stealth":   {"label": "Stealth",   "hp": 30, "power": 10, "target": "any",   "harvest": 16, "stealth": 0.6},
+}
+
+
+def default_layers() -> dict:
+    return {
+        lid: {
+            "id": lid,
+            "name": LAYERS_CONFIG[lid]["name"],
+            "max_hp": LAYERS_CONFIG[lid]["max_hp"],
+            "hp": LAYERS_CONFIG[lid]["max_hp"],
+            "assigned_robots": [],
+            "icon": LAYERS_CONFIG[lid]["icon"],
+        }
+        for lid in LAYERS_ORDER
+    }
+
+
+def default_zones() -> list:
+    return [
+        {**z, "integrity": 100} for z in ZONES_CONFIG
+    ]
+
+
+def default_defense_state() -> dict:
+    return {
+        "viability": 100.0,
+        "layers": default_layers(),
+        "zones": default_zones(),
+        "sensor_tier": 1,
+        "network_progress": [],  # list of node ids completed
+        "protocols": [],  # list of rule objects
+        "adaptations": [],  # active Apollyon counters
+        "last_wave": None,
+        "wave_count": 0,
+        "network_complete": False,
+        "peace_achieved": False,
+    }
+
+
+def compute_viability(zones: list) -> float:
+    total_weight = sum(z.get("weight", 0) for z in zones)
+    if total_weight <= 0:
+        return 0.0
+    score = sum(z.get("integrity", 0) * z.get("weight", 0) for z in zones) / total_weight
+    return round(score, 1)
+
+
+def ensure_defense_state(player_doc: dict) -> dict:
+    """Bootstrap the defense state on legacy player docs."""
+    ds = player_doc.get("defense") or default_defense_state()
+    # Migrate missing keys
+    for k, v in default_defense_state().items():
+        if k not in ds:
+            ds[k] = v
+    # Ensure all 5 layers exist
+    layers = ds.get("layers") or {}
+    for lid in LAYERS_ORDER:
+        if lid not in layers:
+            layers[lid] = default_layers()[lid]
+    ds["layers"] = layers
+    # Ensure zones
+    existing_ids = {z["id"] for z in (ds.get("zones") or [])}
+    zones = ds.get("zones") or []
+    for z in ZONES_CONFIG:
+        if z["id"] not in existing_ids:
+            zones.append({**z, "integrity": 100})
+    ds["zones"] = zones
+    ds["viability"] = compute_viability(zones)
+    player_doc["defense"] = ds
+    return player_doc
+
+
+def compute_adaptations(weapon_usage: Dict[str, int]) -> List[dict]:
+    """Apollyon observes the player and evolves counters."""
+    if not weapon_usage:
+        return []
+    total = sum(weapon_usage.values())
+    if total < 3:
+        return []
+    ranked = sorted(weapon_usage.items(), key=lambda kv: kv[1], reverse=True)
+    top = ranked[0][0]
+    top_ct = ranked[0][1]
+    counters = []
+    # Weapon-based counters
+    mapping = {
+        "laser":     {"name": "REFLECTIVE ARMOR",    "counters": "laser",     "penalty": 0.4, "note": "Laser damage reduced 40%"},
+        "missile":   {"name": "ECM JAMMING",         "counters": "missile",   "penalty": 0.35,"note": "Missile damage reduced 35%"},
+        "railgun":   {"name": "KINETIC DEFLECTORS",  "counters": "railgun",   "penalty": 0.3, "note": "Railgun damage reduced 30%"},
+        "plasma":    {"name": "THERMAL SHROUD",      "counters": "plasma",    "penalty": 0.3, "note": "Plasma damage reduced 30%"},
+        "emp":       {"name": "FARADAY MESH",        "counters": "emp",       "penalty": 0.4, "note": "EMP effect reduced 40%"},
+        "sonic":     {"name": "ACOUSTIC DAMPERS",    "counters": "sonic",     "penalty": 0.3, "note": "Sonic damage reduced 30%"},
+        "gravity":   {"name": "SPACETIME LATTICE",   "counters": "gravity",   "penalty": 0.4, "note": "Gravity damage reduced 40%"},
+        "particle":  {"name": "PHASE INVERSION",     "counters": "particle",  "penalty": 0.4, "note": "Particle damage reduced 40%"},
+        "resonance": {"name": "HARMONIC SHIELDS",    "counters": "resonance", "penalty": 0.5, "note": "Resonance damage reduced 50%"},
+    }
+    if top_ct >= 5 and top in mapping:
+        counters.append({**mapping[top], "trigger_weapon": top})
+    # Second-level counter if very heavy usage
+    if len(ranked) > 1 and ranked[1][1] >= 8 and ranked[1][0] in mapping and ranked[1][0] != top:
+        second = ranked[1][0]
+        counters.append({**mapping[second], "trigger_weapon": second})
+    return counters
+
+
+# ---------- Invasion wave generation & simulation ----------
+
+def generate_wave(player_level: int, sensor_tier: int, wave_count: int) -> dict:
+    """Generate a wave of alien ships with fog-of-war based on sensor tier."""
+    difficulty = 1.0 + 0.15 * max(0, wave_count)
+    scouts = 2 + player_level
+    harvesters = 1 + player_level // 2
+    destroyers = max(1, player_level // 3) + wave_count // 3
+    decoys = 2 + wave_count // 2
+    stealth = wave_count // 4  # unlocks around wave 4
+
+    ships = []
+    for _ in range(scouts):
+        ships.append({"type": "scout"})
+    for _ in range(harvesters):
+        ships.append({"type": "harvester"})
+    for _ in range(destroyers):
+        ships.append({"type": "destroyer"})
+    for _ in range(decoys):
+        ships.append({"type": "decoy"})
+    for _ in range(stealth):
+        ships.append({"type": "stealth"})
+
+    # Assign each ship its stats × difficulty
+    for s in ships:
+        base = SHIP_TYPES[s["type"]]
+        s["hp"] = int(base["hp"] * difficulty)
+        s["power"] = int(base["power"] * difficulty)
+        s["harvest"] = base["harvest"]
+        s["stealth"] = base["stealth"]
+        s["target"] = random.choice([z["id"] for z in ZONES_CONFIG]) if base["target"] else None
+        s["id"] = uuid.uuid4().hex[:6]
+
+    # Fog of war — reveal detail based on sensor tier
+    revealed_ships = []
+    total = len(ships)
+    breakdown = {}
+    for s in ships:
+        # stealth ships hidden at low tiers
+        if s["stealth"] > 0 and sensor_tier < 3 and random.random() < s["stealth"]:
+            continue
+        # decoys revealed as unknown at tier 1
+        if s["type"] == "decoy" and sensor_tier < 3:
+            revealed_ships.append({**s, "type_display": "unknown"})
+            breakdown["unknown"] = breakdown.get("unknown", 0) + 1
+            continue
+        revealed_ships.append({**s, "type_display": s["type"]})
+        breakdown[s["type"]] = breakdown.get(s["type"], 0) + 1
+
+    intel = {
+        "level": sensor_tier,
+        "total_detected": len(revealed_ships) if sensor_tier > 1 else None,
+        "unknown_signatures": total if sensor_tier == 1 else None,
+        "breakdown": breakdown if sensor_tier >= 2 else None,
+        "stealth_warning": stealth > 0 and sensor_tier < 3,
+    }
+    return {
+        "id": uuid.uuid4().hex[:8],
+        "wave_number": wave_count + 1,
+        "ships": ships,          # full truth (used by sim)
+        "revealed": revealed_ships,  # what the player sees before engaging
+        "intel": intel,
+        "difficulty": difficulty,
+    }
+
+
+def simulate_invasion(defense: dict, wave: dict, robots_by_id: dict, weapon_usage: Dict[str, int]) -> dict:
+    """Simulate a full wave through 5 layers using assigned robots + protocols."""
+    layers = defense["layers"]
+    zones = defense["zones"]
+    protocols = defense.get("protocols") or []
+    adaptations = compute_adaptations(weapon_usage)
+
+    log = []
+    surviving_ships = [dict(s) for s in wave["ships"]]  # deep copies
+
+    def layer_power(layer: dict) -> int:
+        power = 40  # base layer resistance
+        for rid in layer.get("assigned_robots", []):
+            r = robots_by_id.get(rid)
+            if r:
+                power += r.get("power", 0) + r.get("attack", 0) * 2 + r.get("tech", 0)
+        return power
+
+    def apply_protocol_boost(ship_type: str, layer_id: str, base_dmg: int) -> int:
+        """Apply user's IF/THEN rules to modify damage."""
+        mult = 1.0
+        for p in protocols:
+            if not p.get("enabled", True):
+                continue
+            conds = p.get("conditions", [])
+            match = True
+            for c in conds:
+                key = c.get("key")
+                val = c.get("value")
+                if key == "ship_type" and val != ship_type:
+                    match = False; break
+                if key == "layer" and val != layer_id:
+                    match = False; break
+            if not match:
+                continue
+            for a in p.get("actions", []):
+                akey = a.get("key")
+                aval = a.get("value")
+                if akey == "priority" and aval == "max":
+                    mult *= 1.5
+                elif akey == "priority" and aval == "high":
+                    mult *= 1.25
+                elif akey == "mode" and aval == "attack":
+                    mult *= 1.15
+                elif akey == "mode" and aval == "defend":
+                    mult *= 0.85
+                elif akey == "mode" and aval == "ignore":
+                    mult *= 0.0
+        return int(base_dmg * mult)
+
+    # Iterate layers in order
+    for lid in LAYERS_ORDER:
+        if not surviving_ships:
+            break
+        layer = layers[lid]
+        if lid == "resource_zones":
+            # Resource layer doesn't fight; ships harvest zones directly
+            zone_damage = {}
+            for s in surviving_ships:
+                z_id = s.get("target") or ZONES_CONFIG[0]["id"]
+                dmg = s["harvest"]
+                zone_damage[z_id] = zone_damage.get(z_id, 0) + dmg
+            for z in zones:
+                if z["id"] in zone_damage:
+                    before = z["integrity"]
+                    z["integrity"] = max(0, z["integrity"] - zone_damage[z["id"]])
+                    log.append({
+                        "layer": lid,
+                        "type": "harvest",
+                        "zone": z["name"],
+                        "damage": before - z["integrity"],
+                        "integrity": z["integrity"],
+                    })
+            break
+
+        # Combat layer — trade blows
+        power = layer_power(layer)
+        ships_before = len(surviving_ships)
+        # Damage to ships (proportional to power / count)
+        remaining_ships = []
+        for s in surviving_ships:
+            base_dmg = max(1, power // max(1, len(surviving_ships)) + random.randint(-3, 6))
+            dmg = apply_protocol_boost(s["type"], lid, base_dmg)
+            s["hp"] = max(0, s["hp"] - dmg)
+            if s["hp"] > 0:
+                remaining_ships.append(s)
+        killed = ships_before - len(remaining_ships)
+        # Ships hit the layer back
+        incoming_power = sum(s["power"] for s in remaining_ships)
+        # Apply Apollyon adaptations (reduce robot effectiveness if we relied on countered weapons)
+        # (already reflected in weapon usage, we simulate as extra damage taken by layer)
+        adapt_penalty = 1.0
+        for a in adaptations:
+            adapt_penalty += 0.1  # each active adaptation adds 10% incoming
+        layer_dmg = int(incoming_power * adapt_penalty * random.uniform(0.6, 1.0))
+        layer["hp"] = max(0, layer["hp"] - layer_dmg)
+        log.append({
+            "layer": lid,
+            "type": "combat",
+            "layer_hp": layer["hp"],
+            "layer_max_hp": layer["max_hp"],
+            "ships_before": ships_before,
+            "ships_killed": killed,
+            "ships_after": len(remaining_ships),
+            "incoming_damage": layer_dmg,
+        })
+        surviving_ships = remaining_ships
+        # If layer wiped out, damage cascades: ships pass through with harvest doubled
+        if layer["hp"] <= 0:
+            for s in surviving_ships:
+                s["harvest"] = int(s["harvest"] * 1.4)
+
+    # Update viability
+    viability = compute_viability(zones)
+    defense["viability"] = viability
+    defense["layers"] = layers
+    defense["zones"] = zones
+    defense["adaptations"] = adaptations
+
+    outcome = "victory" if not surviving_ships or all(s.get("harvest", 0) == 0 for s in surviving_ships) else "partial"
+    if viability <= VIABILITY_CRITICAL:
+        outcome = "apollyon_victory"
+
+    return {
+        "wave_id": wave["id"],
+        "wave_number": wave["wave_number"],
+        "outcome": outcome,
+        "log": log,
+        "viability_after": viability,
+        "layers_after": layers,
+        "zones_after": zones,
+        "adaptations": adaptations,
+        "surviving_ships": len(surviving_ships),
+    }
+
+
+# ---------- Models ----------
+
+class AssignRobotRequest(BaseModel):
+    player_id: str
+    robot_id: str
+    layer_id: str  # deep_space | orbital | atmosphere | ground
+
+
+class UnassignRobotRequest(BaseModel):
+    player_id: str
+    robot_id: str
+
+
+class ProtocolCondition(BaseModel):
+    key: str
+    op: str = "eq"
+    value: str
+
+
+class ProtocolAction(BaseModel):
+    key: str
+    value: str
+
+
+class ProtocolRule(BaseModel):
+    id: Optional[str] = None
+    name: str
+    priority: int = 1
+    enabled: bool = True
+    conditions: List[ProtocolCondition] = Field(default_factory=list)
+    actions: List[ProtocolAction] = Field(default_factory=list)
+
+
+class SaveProtocolsRequest(BaseModel):
+    player_id: str
+    protocols: List[ProtocolRule]
+
+
+class ScanRequest(BaseModel):
+    player_id: str
+
+
+class EngageRequest(BaseModel):
+    player_id: str
+    wave_id: str
+
+
+class NetworkBuildRequest(BaseModel):
+    player_id: str
+    node_id: str
+
+
+class RepairLayerRequest(BaseModel):
+    player_id: str
+    layer_id: str
+
+
+# ---------- Routes ----------
+
+@api_router.get("/defense/config")
+async def defense_config():
+    return {
+        "layers": [{"id": lid, **LAYERS_CONFIG[lid]} for lid in LAYERS_ORDER],
+        "zones": ZONES_CONFIG,
+        "network_nodes": NETWORK_NODES,
+        "ship_types": SHIP_TYPES,
+        "viability_critical": VIABILITY_CRITICAL,
+    }
+
+
+@api_router.get("/defense/state/{player_id}")
+async def defense_state(player_id: str):
+    doc = await db.players.find_one({"id": player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = apply_energy_regen(doc)
+    doc = ensure_defense_state(doc)
+    doc["defense"]["adaptations"] = compute_adaptations(doc.get("weapon_usage") or {})
+    await db.players.update_one({"id": player_id}, {"$set": {
+        "defense": doc["defense"],
+        "resources": doc["resources"],
+        "resources_updated_at": doc["resources_updated_at"],
+    }})
+    return doc["defense"]
+
+
+@api_router.post("/defense/assign")
+async def defense_assign(req: AssignRobotRequest):
+    if req.layer_id not in LAYERS_ORDER or req.layer_id == "resource_zones":
+        raise HTTPException(status_code=400, detail="Invalid layer")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    robot = await db.robots.find_one({"id": req.robot_id, "player_id": req.player_id}, {"_id": 0})
+    if not robot:
+        raise HTTPException(status_code=404, detail="Robot not found")
+    doc = ensure_defense_state(doc)
+    layers = doc["defense"]["layers"]
+    # Remove robot from any current layer
+    for lid in LAYERS_ORDER:
+        if req.robot_id in layers.get(lid, {}).get("assigned_robots", []):
+            layers[lid]["assigned_robots"].remove(req.robot_id)
+    layers[req.layer_id]["assigned_robots"].append(req.robot_id)
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.layers": layers}})
+    return {"ok": True, "layer": req.layer_id, "robot_id": req.robot_id}
+
+
+@api_router.post("/defense/unassign")
+async def defense_unassign(req: UnassignRobotRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    layers = doc["defense"]["layers"]
+    for lid in LAYERS_ORDER:
+        if req.robot_id in layers.get(lid, {}).get("assigned_robots", []):
+            layers[lid]["assigned_robots"].remove(req.robot_id)
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.layers": layers}})
+    return {"ok": True}
+
+
+@api_router.post("/defense/repair")
+async def defense_repair(req: RepairLayerRequest):
+    if req.layer_id not in LAYERS_ORDER or req.layer_id == "resource_zones":
+        raise HTTPException(status_code=400, detail="Invalid layer")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = apply_energy_regen(doc)
+    doc = ensure_defense_state(doc)
+    layer = doc["defense"]["layers"][req.layer_id]
+    missing = layer["max_hp"] - layer["hp"]
+    if missing <= 0:
+        return {"ok": True, "repaired": 0, "layer": layer}
+    cost_mat = int(missing * 0.4)
+    cost_energy = max(5, int(missing * 0.1))
+    resources = doc["resources"]
+    if resources.get("materials", 0) < cost_mat or resources.get("energy", 0) < cost_energy:
+        raise HTTPException(status_code=400, detail=f"Need {cost_mat} MAT and {cost_energy} PWR to fully repair")
+    resources["materials"] -= cost_mat
+    resources["energy"] -= cost_energy
+    layer["hp"] = layer["max_hp"]
+    doc["defense"]["layers"][req.layer_id] = layer
+    await db.players.update_one({"id": req.player_id}, {"$set": {
+        "defense.layers": doc["defense"]["layers"],
+        "resources": resources,
+        "resources_updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    return {"ok": True, "repaired": missing, "layer": layer, "resources": resources}
+
+
+@api_router.post("/defense/protocols")
+async def defense_save_protocols(req: SaveProtocolsRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    protocols = []
+    for p in req.protocols:
+        proto = p.model_dump()
+        if not proto.get("id"):
+            proto["id"] = uuid.uuid4().hex[:8]
+        protocols.append(proto)
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.protocols": protocols}})
+    return {"ok": True, "protocols": protocols}
+
+
+@api_router.post("/invasion/scan")
+async def invasion_scan(req: ScanRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = ensure_defense_state(doc)
+    wave_count = doc["defense"].get("wave_count", 0)
+    wave = generate_wave(doc.get("level", 1), doc["defense"].get("sensor_tier", 1), wave_count)
+    doc["defense"]["last_wave"] = wave
+    await db.players.update_one({"id": req.player_id}, {"$set": {"defense.last_wave": wave}})
+    return {
+        "wave_id": wave["id"],
+        "wave_number": wave["wave_number"],
+        "intel": wave["intel"],
+        "revealed": wave["revealed"],
+        "adaptations": compute_adaptations(doc.get("weapon_usage") or {}),
+    }
+
+
+@api_router.post("/invasion/engage")
+async def invasion_engage(req: EngageRequest):
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = apply_energy_regen(doc)
+    doc = ensure_defense_state(doc)
+    last_wave = doc["defense"].get("last_wave")
+    if not last_wave or last_wave.get("id") != req.wave_id:
+        raise HTTPException(status_code=400, detail="No matching wave. Scan first.")
+    # Energy cost
+    resources = doc["resources"]
+    if resources.get("energy", 0) < 15:
+        raise HTTPException(status_code=400, detail="INSUFFICIENT ENERGY: need 15")
+    resources["energy"] -= 15
+    # Load all robots
+    robots_list = await db.robots.find({"player_id": req.player_id}, {"_id": 0}).to_list(500)
+    robots_by_id = {r["id"]: r for r in robots_list}
+    weapon_usage = doc.get("weapon_usage") or {}
+    # Run sim
+    result = simulate_invasion(doc["defense"], last_wave, robots_by_id, weapon_usage)
+    # Track weapon usage from assigned robots (aggregated)
+    for lid in LAYERS_ORDER:
+        for rid in doc["defense"]["layers"].get(lid, {}).get("assigned_robots", []):
+            r = robots_by_id.get(rid)
+            if r and r.get("weapon"):
+                weapon_usage[r["weapon"]] = weapon_usage.get(r["weapon"], 0) + 1
+    # Rewards
+    xp = 60 if result["outcome"] == "victory" else 20
+    score = xp + int(result["viability_after"])
+    research = 8 if result["outcome"] == "victory" else 2
+    materials = 40 if result["outcome"] == "victory" else 0
+    resources["research"] = resources.get("research", 0) + research
+    resources["materials"] = resources.get("materials", 0) + materials
+    new_gen = compute_generation(resources["research"])
+    # Update defense state
+    defense = doc["defense"]
+    defense["viability"] = result["viability_after"]
+    defense["layers"] = result["layers_after"]
+    defense["zones"] = result["zones_after"]
+    defense["adaptations"] = result["adaptations"]
+    defense["wave_count"] = defense.get("wave_count", 0) + 1
+    defense["last_wave"] = None
+    if result["outcome"] == "apollyon_victory":
+        defense["apollyon_victory"] = True
+    updates = {
+        "resources": resources,
+        "resources_updated_at": datetime.now(timezone.utc).isoformat(),
+        "generation": new_gen,
+        "defense": defense,
+        "weapon_usage": weapon_usage,
+        "xp": doc["xp"] + xp,
+        "score": doc["score"] + score,
+    }
+    if result["outcome"] == "victory":
+        updates["victories"] = doc.get("victories", 0) + 1
+    elif result["outcome"] == "apollyon_victory":
+        updates["defeats"] = doc.get("defeats", 0) + 1
+    await db.players.update_one({"id": req.player_id}, {"$set": updates})
+    return {
+        **result,
+        "rewards": {"xp": xp, "research": research, "materials": materials},
+        "resources": resources,
+    }
+
+
+@api_router.post("/network/build")
+async def network_build(req: NetworkBuildRequest):
+    node = next((n for n in NETWORK_NODES if n["id"] == req.node_id), None)
+    if not node:
+        raise HTTPException(status_code=404, detail="Unknown network node")
+    doc = await db.players.find_one({"id": req.player_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Player not found")
+    doc = apply_energy_regen(doc)
+    doc = ensure_defense_state(doc)
+    if req.node_id in doc["defense"].get("network_progress", []):
+        raise HTTPException(status_code=400, detail="Node already built")
+    resources = doc["resources"]
+    for res_key, needed in node["cost"].items():
+        if resources.get(res_key, 0) < needed:
+            raise HTTPException(status_code=400, detail=f"Need {needed} {res_key.upper()}")
+    for res_key, needed in node["cost"].items():
+        resources[res_key] -= needed
+    doc["defense"]["network_progress"].append(req.node_id)
+    # Reinforce layer if node has one
+    if node.get("layer") and node["layer"] in doc["defense"]["layers"]:
+        L = doc["defense"]["layers"][node["layer"]]
+        L["max_hp"] = int(L["max_hp"] * 1.15)
+        L["hp"] = L["max_hp"]
+    # Sensor tier upgrades
+    if req.node_id == "deep_space_array":
+        doc["defense"]["sensor_tier"] = max(doc["defense"].get("sensor_tier", 1), 2)
+    if req.node_id == "quantum_sensors":
+        doc["defense"]["sensor_tier"] = 3
+    # Network completion
+    if len(doc["defense"]["network_progress"]) >= len(NETWORK_NODES):
+        doc["defense"]["network_complete"] = True
+    await db.players.update_one({"id": req.player_id}, {"$set": {
+        "defense": doc["defense"],
+        "resources": resources,
+        "resources_updated_at": datetime.now(timezone.utc).isoformat(),
+    }})
+    return {
+        "ok": True,
+        "node": node,
+        "network_progress": doc["defense"]["network_progress"],
+        "network_complete": doc["defense"]["network_complete"],
+        "sensor_tier": doc["defense"]["sensor_tier"],
+        "layers": doc["defense"]["layers"],
+        "resources": resources,
+    }
+
+
+@api_router.post("/defense/reset/{player_id}")
+async def defense_reset(player_id: str):
+    """Restart planetary state after alien victory or for testing."""
+    ds = default_defense_state()
+    await db.players.update_one({"id": player_id}, {"$set": {"defense": ds}})
+    return ds
 
 
 app.add_middleware(

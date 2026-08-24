@@ -1,21 +1,35 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, Pressable } from "react-native";
-import { Image } from "expo-image";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  RefreshControl,
+  ActivityIndicator,
+  Pressable,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
-import { api, storage, Player, Threat, Region, ALIEN_CLASS_META, GEN_UNLOCK_RESEARCH } from "@/src/api";
-import { HudPanel, TerminalHeader, HudButton } from "@/src/components/hud";
+import {
+  api,
+  storage,
+  Player,
+  DefenseState,
+  ResourceZone,
+  DefenseLayer,
+} from "@/src/api";
+import { LAYER_META, LAYER_ORDER } from "@/src/defense-meta";
+import { TerminalHeader } from "@/src/components/hud";
 
-const MAP_URL =
-  "https://images.pexels.com/photos/12381327/pexels-photo-12381327.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940";
+const CRITICAL = 25;
 
-export default function CommandCenter() {
+export default function EarthAIConsole() {
   const router = useRouter();
   const [player, setPlayer] = useState<Player | null>(null);
-  const [threats, setThreats] = useState<Threat[]>([]);
+  const [defense, setDefense] = useState<DefenseState | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -26,37 +40,22 @@ export default function CommandCenter() {
         router.replace("/");
         return;
       }
-      const p = await api.getPlayer(id);
-      const ts = await api.listThreats(4, p.level);
+      const [p, d] = await Promise.all([api.getPlayer(id), api.defenseState(id)]);
       setPlayer(p);
-      setThreats(ts);
+      setDefense(d);
     } catch (e) {
-      console.warn("load command failed", e);
+      console.warn("console load failed", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [router]);
 
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load])
-  );
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    load();
-  };
+  const onRefresh = () => { setRefreshing(true); load(); };
 
-  const deploy = (threat: Threat) => {
-    router.push({
-      pathname: "/combat",
-      params: { threat: JSON.stringify(threat) },
-    });
-  };
-
-  if (loading || !player) {
+  if (loading || !player || !defense) {
     return (
       <View style={styles.loader}>
         <ActivityIndicator color={colors.brandPrimary} />
@@ -64,163 +63,232 @@ export default function CommandCenter() {
     );
   }
 
-  const nextGenTarget = GEN_UNLOCK_RESEARCH[player.generation + 1];
+  const viability = defense.viability ?? 100;
+  const viabilityColor =
+    viability <= CRITICAL ? colors.brandSecondary : viability < 60 ? colors.warning : colors.success;
+  const networkPct = (defense.network_progress?.length ?? 0) / 8;
+
+  const criticalZones = (defense.zones || []).filter((z) => z.integrity < 50).length;
+  const apollyonVictory = viability <= CRITICAL || defense.apollyon_victory;
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <TerminalHeader
-        testID="command-header"
-        title={`CMDR ${player.codename}`}
-        subtitle={`LVL ${player.level}  •  XP ${player.xp}  •  GEN ${player.generation}`}
+        testID="console-header"
+        title={`EARTH AI CONSOLE // ${player.codename}`}
+        subtitle={`CMDR OVERSEER • GEN ${player.generation} • WAVE ${defense.wave_count}`}
       />
       <ScrollView
         contentContainerStyle={styles.scroll}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.brandPrimary}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.brandPrimary} />
         }
       >
-        {/* Resource panel */}
-        <View style={styles.resourceRow} testID="resource-row">
-          <ResourceCell icon="lightning-bolt" label="ENERGY" value={player.resources.energy} max={100} color={colors.warning} />
-          <ResourceCell icon="cube-outline" label="MATER" value={player.resources.materials} color={colors.brandPrimary} />
-          <ResourceCell icon="chip" label="COMP" value={player.resources.compute} color={colors.success} />
-          <ResourceCell icon="atom" label="RSRCH" value={player.resources.research} color={colors.brandSecondary} />
-        </View>
-
-        {/* Generation progress */}
-        {nextGenTarget && (
-          <HudPanel style={styles.genPanel} accent="cyan" testID="gen-panel">
-            <View style={styles.genHeader}>
-              <MaterialCommunityIcons name="progress-upload" size={16} color={colors.brandPrimary} />
-              <Text style={styles.genTitle}>NEXT GEN {player.generation + 1} UNLOCK</Text>
-              <Text style={styles.genValue}>
-                {player.resources.research}/{nextGenTarget}
-              </Text>
-            </View>
-            <View style={styles.genBar}>
-              <View
-                style={[
-                  styles.genFill,
-                  { width: `${Math.min(100, (player.resources.research / nextGenTarget) * 100)}%` },
-                ]}
-              />
-            </View>
-          </HudPanel>
-        )}
-
-        <View style={styles.mapWrap}>
-          <Image source={{ uri: MAP_URL }} style={styles.map} contentFit="cover" />
+        {/* ==== PLANETARY VIABILITY ==== */}
+        <View style={[styles.viaCard, { borderColor: viabilityColor }]} testID="viability-card">
           <LinearGradient
-            colors={["rgba(0,229,255,0.05)", "rgba(9,10,13,0.95)"]}
+            colors={[`${viabilityColor}22`, "transparent"]}
             style={StyleSheet.absoluteFill}
           />
-          <View style={styles.mapOverlay}>
-            <Text style={styles.mapTitle}>GLOBAL THREAT MAP</Text>
-            <Text style={styles.mapSub}>
-              {threats.length} ACTIVE INCURSIONS • REAL-TIME SCAN
+          <View style={styles.viaHeaderRow}>
+            <MaterialCommunityIcons name="earth" size={20} color={viabilityColor} />
+            <Text style={styles.viaTitle}>PLANETARY VIABILITY</Text>
+            <Text style={[styles.viaBadge, { color: viabilityColor }]}>
+              {viability <= CRITICAL ? "CRITICAL" : viability < 60 ? "STRAINED" : "STABLE"}
+            </Text>
+          </View>
+          <Text style={[styles.viaValue, { color: viabilityColor }]} testID="viability-value">
+            {viability.toFixed(1)}%
+          </Text>
+          <View style={styles.viaBar}>
+            <View
+              style={[styles.viaFill, { width: `${Math.max(0, viability)}%`, backgroundColor: viabilityColor }]}
+            />
+            <View style={[styles.viaMarker, { left: `${CRITICAL}%` }]} />
+          </View>
+          <Text style={styles.viaSub}>
+            {apollyonVictory
+              ? "EARTH CAN NO LONGER SUSTAIN CIVILIZATION"
+              : `${criticalZones} resource zone${criticalZones === 1 ? "" : "s"} compromised • lose < ${CRITICAL}% = APOLLYON WINS`}
+          </Text>
+        </View>
+
+        {/* ==== RESOURCES STRIP ==== */}
+        <View style={styles.resRow} testID="resource-row">
+          <ResCell icon="lightning-bolt" label="PWR"   value={player.resources.energy}    max={100} color={colors.warning} />
+          <ResCell icon="cube-outline"   label="MAT"   value={player.resources.materials}           color={colors.brandPrimary} />
+          <ResCell icon="chip"           label="COMP"  value={player.resources.compute}             color={colors.success} />
+          <ResCell icon="atom"           label="RSRCH" value={player.resources.research}            color={colors.brandSecondary} />
+        </View>
+
+        {/* ==== ADAPTATION WARNINGS ==== */}
+        {(defense.adaptations || []).length > 0 && (
+          <View style={styles.adaptCard} testID="adaptation-card">
+            <View style={styles.adaptHeader}>
+              <MaterialCommunityIcons name="alert-decagram" size={16} color={colors.brandSecondary} />
+              <Text style={styles.adaptTitle}>APOLLYON HAS ANALYZED YOUR DEFENSE NETWORK</Text>
+            </View>
+            {defense.adaptations.map((a, i) => (
+              <View key={i} style={styles.adaptRow}>
+                <Text style={styles.adaptName}>▮ {a.name}</Text>
+                <Text style={styles.adaptNote}>{a.note}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* ==== QUICK ACTIONS ==== */}
+        <View style={styles.actionsGrid}>
+          <ActionCard
+            icon="radar"
+            label="SCAN & ENGAGE"
+            sub={apollyonVictory ? "RECOVERY REQUIRED" : "Detect incoming wave"}
+            color={colors.brandSecondary}
+            disabled={apollyonVictory}
+            onPress={() => router.push("/defense/invasion")}
+            testID="cta-invasion"
+          />
+          <ActionCard
+            icon="chip"
+            label="PROTOCOLS"
+            sub={`${defense.protocols?.length || 0} rule${(defense.protocols?.length || 0) === 1 ? "" : "s"} active`}
+            color={colors.brandPrimary}
+            onPress={() => router.push("/defense/protocols")}
+            testID="cta-protocols"
+          />
+          <ActionCard
+            icon="shield-half-full"
+            label="LAYERS"
+            sub="Assign robots"
+            color={colors.success}
+            onPress={() => router.push("/defense/layers")}
+            testID="cta-layers"
+          />
+          <ActionCard
+            icon="hexagon-multiple"
+            label="NETWORK"
+            sub={`${defense.network_progress?.length || 0}/8 nodes`}
+            color={colors.warning}
+            onPress={() => router.push("/defense/network")}
+            testID="cta-network"
+          />
+        </View>
+
+        {/* ==== NETWORK COMPLETION BAR ==== */}
+        <Pressable
+          style={styles.netProgress}
+          onPress={() => router.push("/defense/network")}
+          testID="network-progress"
+        >
+          <View style={styles.netHeader}>
+            <MaterialCommunityIcons name="hexagon-multiple" size={14} color={colors.warning} />
+            <Text style={styles.netTitle}>PLANETARY DEFENSE NETWORK</Text>
+            <Text style={styles.netValue}>{defense.network_progress?.length || 0}/8</Text>
+          </View>
+          <View style={styles.netBar}>
+            <View style={[styles.netFill, { width: `${networkPct * 100}%` }]} />
+          </View>
+          <Text style={styles.netSub}>
+            {defense.network_complete ? "◆ NETWORK COMPLETE — INITIATE APOLLYON" : "Complete to make Earth un-harvestable"}
+          </Text>
+        </Pressable>
+
+        {/* ==== DEFENSE LAYER STACK ==== */}
+        <Text style={styles.sectionTitle}>▮ MULTI-LAYER DEFENSE GRID</Text>
+        <View style={styles.layerStack}>
+          {LAYER_ORDER.map((lid) => {
+            const L: DefenseLayer | undefined = defense.layers?.[lid];
+            const meta = LAYER_META[lid];
+            const hpPct = L ? (L.hp / L.max_hp) * 100 : 0;
+            const isResource = lid === "resource_zones";
+            return (
+              <View key={lid} style={[styles.layerCard, { borderColor: hpPct < 30 ? colors.brandSecondary : colors.border }]}>
+                <View style={styles.layerHeader}>
+                  <MaterialCommunityIcons name={meta.icon as any} size={16} color={meta.color} />
+                  <Text style={[styles.layerName, { color: meta.color }]}>{meta.name.toUpperCase()}</Text>
+                  {!isResource && (
+                    <Text style={styles.layerHp}>
+                      {L?.hp}/{L?.max_hp} HP
+                    </Text>
+                  )}
+                </View>
+                {!isResource && (
+                  <View style={styles.layerBar}>
+                    <View style={[styles.layerFill, { width: `${hpPct}%`, backgroundColor: meta.color }]} />
+                  </View>
+                )}
+                <Text style={styles.layerAssignment}>
+                  {isResource
+                    ? `${defense.zones?.filter((z) => z.integrity > 0).length || 0}/${defense.zones?.length || 0} zones online`
+                    : `${L?.assigned_robots?.length || 0} robot${(L?.assigned_robots?.length || 0) === 1 ? "" : "s"} assigned`}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+
+        {/* ==== RESOURCE ZONES GRID ==== */}
+        <Text style={styles.sectionTitle}>▮ EARTH RESOURCE ZONES</Text>
+        <View style={styles.zoneGrid}>
+          {(defense.zones || []).map((z) => (
+            <ZoneCell key={z.id} zone={z} />
+          ))}
+        </View>
+
+        {/* ==== SENSOR TIER ==== */}
+        <View style={styles.sensorCard}>
+          <MaterialCommunityIcons
+            name={defense.sensor_tier >= 3 ? "eye-plus" : defense.sensor_tier === 2 ? "eye" : "eye-off"}
+            size={18}
+            color={colors.brandPrimary}
+          />
+          <View style={{ flex: 1, marginLeft: spacing.sm }}>
+            <Text style={styles.sensorTitle}>SENSOR TIER {defense.sensor_tier} / 3</Text>
+            <Text style={styles.sensorSub}>
+              {defense.sensor_tier === 1
+                ? "// Basic scan — total count only"
+                : defense.sensor_tier === 2
+                ? "// Breakdown by ship type — decoys unmasked in engage"
+                : "// Full intel — stealth revealed, decoys tagged"}
             </Text>
           </View>
         </View>
 
-        {/* Regions */}
-        <Text style={styles.sectionTitle} testID="regions-title">
-          ▮ STRATEGIC REGIONS
-        </Text>
-        <View style={styles.regionsGrid}>
-          {(player.regions || []).map((r) => (
-            <RegionCard
-              key={r.id}
-              region={r}
-              onPress={() =>
-                router.push({
-                  pathname: "/combat",
-                  params: { region: JSON.stringify(r) },
-                })
-              }
-            />
-          ))}
-        </View>
-
-        {/* Apollyon CTA */}
-        {player.apollyon?.unlocked && !player.apollyon?.decision && (
+        {/* ==== APOLLYON CTA ==== */}
+        {defense.network_complete && !player.apollyon?.decision && (
           <Pressable
-            testID="apollyon-cta"
+            style={styles.apolCta}
             onPress={() => router.push("/apollyon")}
-            style={styles.apollyonCta}
+            testID="apollyon-cta"
           >
-            <View style={styles.apollyonInner}>
-              <MaterialCommunityIcons name="skull-scan" size={28} color={colors.brandSecondary} />
-              <View style={{ flex: 1, marginLeft: spacing.md }}>
-                <Text style={styles.apollyonTitle}>
-                  {player.apollyon?.completed ? "APOLLYON // AWAITING DECISION" : "APOLLYON // ENGAGE ENDGAME"}
-                </Text>
-                <Text style={styles.apollyonSub}>
-                  {player.apollyon?.completed
-                    ? "The alien intelligence has fallen. Choose humanity's fate."
-                    : `PHASE ${(player.apollyon?.phase ?? 0) + 1} / 3 — biomechanical avatar detected`}
-                </Text>
-              </View>
-              <MaterialCommunityIcons name="chevron-right" size={22} color={colors.brandSecondary} />
+            <MaterialCommunityIcons name="skull-scan" size={26} color={colors.brandSecondary} />
+            <View style={{ flex: 1, marginLeft: spacing.md }}>
+              <Text style={styles.apolTitle}>NETWORK COMPLETE // ENGAGE APOLLYON</Text>
+              <Text style={styles.apolSub}>The final duel between two artificial intelligences.</Text>
             </View>
+            <MaterialCommunityIcons name="chevron-right" size={22} color={colors.brandSecondary} />
           </Pressable>
         )}
 
-        <Text style={styles.sectionTitle} testID="threats-title">
-          ▮ ACTIVE THREATS
-        </Text>
-
-        {threats.map((t) => {
-          const meta = ALIEN_CLASS_META[t.alien_class];
-          return (
-            <HudPanel
-              key={t.id}
-              accent="magenta"
-              style={styles.threatCard}
-              testID={`threat-card-${t.alien_class}`}
+        {apollyonVictory && (
+          <View style={styles.defeatCard} testID="apollyon-victory-card">
+            <Text style={styles.defeatTitle}>APOLLYON VICTORY</Text>
+            <Text style={styles.defeatBody}>
+              Earth has fallen below sustainable viability. Reset the planet to try again.
+            </Text>
+            <Pressable
+              style={styles.resetBtn}
+              onPress={async () => {
+                if (!player) return;
+                await api.defenseReset(player.id);
+                load();
+              }}
+              testID="reset-defense"
             >
-              <View style={styles.threatHeader}>
-                <View style={styles.classBadge} testID={`class-${t.alien_class}`}>
-                  <MaterialCommunityIcons name={meta.icon as any} size={18} color={meta.color} />
-                  <Text style={[styles.classBadgeText, { color: meta.color }]}>{meta.label}</Text>
-                </View>
-                <Text style={styles.classTag}>{meta.tag}</Text>
-              </View>
-              <View style={styles.threatBody}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.threatName}>{t.name.toUpperCase()}</Text>
-                  <Text style={styles.threatLoc}>
-                    <MaterialCommunityIcons name="map-marker" size={12} color={colors.brandSecondary} />{" "}
-                    {t.location} • CLASS {t.threat_level}
-                  </Text>
-                </View>
-                <View style={styles.levelBadge}>
-                  <Text style={styles.levelBadgeText}>{t.threat_level}</Text>
-                </View>
-              </View>
-              <Text style={styles.threatDesc} numberOfLines={3}>
-                {t.description}
-              </Text>
-              <View style={styles.threatFooter}>
-                <View style={styles.rewardRow}>
-                  <Text style={styles.rewardText}>+{t.reward_xp} XP</Text>
-                  <Text style={[styles.rewardText, { color: colors.brandPrimary }]}>+{t.reward_materials}▣</Text>
-                  <Text style={[styles.rewardText, { color: colors.brandSecondary }]}>+{t.reward_research}⚛</Text>
-                </View>
-                <HudButton
-                  label="ENGAGE"
-                  variant="danger"
-                  compact
-                  onPress={() => deploy(t)}
-                  testID={`engage-${t.alien_class}`}
-                />
-              </View>
-            </HudPanel>
-          );
-        })}
+              <Text style={styles.resetText}>▮ RESTORE PLANETARY STATE</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -228,21 +296,9 @@ export default function CommandCenter() {
   );
 }
 
-function ResourceCell({
-  icon,
-  label,
-  value,
-  max,
-  color,
-}: {
-  icon: any;
-  label: string;
-  value: number;
-  max?: number;
-  color: string;
-}) {
+function ResCell({ icon, label, value, max, color }: any) {
   return (
-    <View style={styles.resCell} testID={`res-${label.toLowerCase()}`}>
+    <View style={styles.resCell}>
       <MaterialCommunityIcons name={icon} size={14} color={color} />
       <Text style={styles.resLabel}>{label}</Text>
       <Text style={[styles.resValue, { color }]}>
@@ -253,318 +309,202 @@ function ResourceCell({
   );
 }
 
-const RES_META: Record<Region["resource"], { icon: string; color: string; short: string }> = {
-  research:  { icon: "atom",           color: colors.brandSecondary, short: "RSRCH" },
-  compute:   { icon: "chip",           color: colors.success,        short: "COMP" },
-  materials: { icon: "cube-outline",   color: colors.brandPrimary,   short: "MAT" },
-  energy:    { icon: "lightning-bolt", color: colors.warning,        short: "PWR" },
-};
-
-function RegionCard({ region, onPress }: { region: Region; onPress: () => void }) {
-  const meta = RES_META[region.resource];
-  const stateLabel = !region.controlled
-    ? "LOST"
-    : region.under_attack
-    ? "UNDER ATTACK"
-    : "HELD";
-  const stateColor = !region.controlled
-    ? colors.brandSecondary
-    : region.under_attack
-    ? colors.warning
-    : colors.success;
+function ActionCard({
+  icon, label, sub, color, onPress, disabled, testID,
+}: {
+  icon: string; label: string; sub: string; color: string; onPress: () => void; disabled?: boolean; testID?: string;
+}) {
   return (
     <Pressable
-      testID={`region-${region.id}`}
       onPress={onPress}
+      disabled={disabled}
+      testID={testID}
+      style={({ pressed }) => [
+        styles.actionCard,
+        { borderColor: color, opacity: disabled ? 0.35 : pressed ? 0.7 : 1 },
+      ]}
+    >
+      <MaterialCommunityIcons name={icon as any} size={22} color={color} />
+      <Text style={[styles.actionLabel, { color }]}>{label}</Text>
+      <Text style={styles.actionSub}>{sub}</Text>
+    </Pressable>
+  );
+}
+
+function ZoneCell({ zone }: { zone: ResourceZone }) {
+  const critical = zone.integrity < 40;
+  const dead = zone.integrity <= 0;
+  return (
+    <View
       style={[
-        styles.regionCard,
+        styles.zoneCell,
         {
-          borderColor:
-            !region.controlled
-              ? colors.brandSecondary
-              : region.under_attack
-              ? colors.warning
-              : colors.border,
+          borderColor: dead ? colors.brandSecondary : critical ? colors.warning : colors.border,
+          opacity: dead ? 0.5 : 1,
         },
       ]}
     >
-      <View style={styles.regionTopRow}>
-        <MaterialCommunityIcons name={meta.icon as any} size={16} color={meta.color} />
-        <Text style={[styles.regionState, { color: stateColor }]}>{stateLabel}</Text>
+      <MaterialCommunityIcons name={zone.icon as any} size={16} color={zone.color} />
+      <Text style={styles.zoneName}>{zone.name.toUpperCase()}</Text>
+      <View style={styles.zoneBar}>
+        <View style={[styles.zoneFill, { width: `${zone.integrity}%`, backgroundColor: zone.color }]} />
       </View>
-      <Text style={styles.regionName}>{region.name.toUpperCase()}</Text>
-      <Text style={[styles.regionBonus, { color: meta.color }]}>
-        +{region.per_hour}/h {meta.short}
-      </Text>
-      <View style={styles.regionBar}>
-        <View
-          style={[
-            styles.regionBarFill,
-            {
-              width: `${region.integrity}%`,
-              backgroundColor: stateColor,
-            },
-          ]}
-        />
-      </View>
-      <Text style={styles.regionIntegrity}>{region.integrity}% INTEGRITY</Text>
-    </Pressable>
+      <Text style={[styles.zoneInt, { color: zone.color }]}>{zone.integrity}%</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.surface },
-  loader: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  loader: { flex: 1, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center" },
   scroll: { padding: spacing.lg, paddingTop: spacing.md },
-  resourceRow: {
+  viaCard: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: colors.surfaceSecondary,
+    overflow: "hidden",
+  },
+  viaHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  viaTitle: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: fontSize.xs, letterSpacing: 1.5, flex: 1 },
+  viaBadge: { fontFamily: fonts.displayBold, fontSize: fontSize.xs, letterSpacing: 1.5 },
+  viaValue: { fontFamily: fonts.displayBold, fontSize: 38, letterSpacing: 2, marginVertical: 4 },
+  viaBar: { height: 6, backgroundColor: colors.surfaceTertiary, overflow: "hidden", borderRadius: 2, marginTop: 4 },
+  viaFill: { height: 6 },
+  viaMarker: { position: "absolute", top: 0, bottom: 0, width: 1, backgroundColor: colors.brandSecondary },
+  viaSub: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, letterSpacing: 0.5, marginTop: 6 },
+
+  resRow: { flexDirection: "row", justifyContent: "space-between", gap: spacing.sm, marginBottom: spacing.md },
+  resCell: {
+    flex: 1, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceSecondary,
+    padding: spacing.xs, alignItems: "center", borderRadius: radius.md,
+  },
+  resLabel: { fontFamily: fonts.display, color: colors.onSurfaceTertiary, fontSize: 9, letterSpacing: 1, marginTop: 2 },
+  resValue: { fontFamily: fonts.displayBold, fontSize: fontSize.base, letterSpacing: 0.5 },
+  resMax: { fontFamily: fonts.display, color: colors.onSurfaceTertiary, fontSize: fontSize.xs },
+
+  adaptCard: {
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255,51,102,0.06)",
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  adaptHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: spacing.xs },
+  adaptTitle: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.xs, letterSpacing: 1.5, flex: 1 },
+  adaptRow: { marginTop: 4 },
+  adaptName: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.sm, letterSpacing: 1 },
+  adaptNote: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, marginLeft: 8 },
+
+  actionsGrid: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    flexWrap: "wrap",
     gap: spacing.sm,
     marginBottom: spacing.md,
   },
-  resCell: {
-    flex: 1,
+  actionCard: {
+    width: "48%",
     borderWidth: 1,
-    borderColor: colors.border,
+    padding: spacing.md,
     backgroundColor: colors.surfaceSecondary,
-    padding: spacing.xs,
-    alignItems: "center",
     borderRadius: radius.md,
+    gap: 4,
   },
-  resLabel: {
-    fontFamily: fonts.display,
-    color: colors.onSurfaceTertiary,
-    fontSize: 9,
-    letterSpacing: 1,
-    marginTop: 2,
-  },
-  resValue: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSize.base,
-    letterSpacing: 0.5,
-  },
-  resMax: {
-    fontFamily: fonts.display,
-    color: colors.onSurfaceTertiary,
-    fontSize: fontSize.xs,
-  },
-  genPanel: { marginBottom: spacing.lg, paddingVertical: spacing.sm },
-  genHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 6,
-  },
-  genTitle: {
-    fontFamily: fonts.displayBold,
-    color: colors.brandPrimary,
-    fontSize: fontSize.xs,
-    letterSpacing: 1.5,
-    flex: 1,
-  },
-  genValue: {
-    fontFamily: fonts.displayBold,
-    color: colors.brandSecondary,
-    fontSize: fontSize.sm,
-    letterSpacing: 1,
-  },
-  genBar: {
-    height: 4,
-    backgroundColor: colors.surfaceTertiary,
-    overflow: "hidden",
-  },
-  genFill: { height: 4, backgroundColor: colors.brandPrimary },
-  mapWrap: {
-    height: 180,
+  actionLabel: { fontFamily: fonts.displayBold, fontSize: fontSize.base, letterSpacing: 1.5, marginTop: 6 },
+  actionSub: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, letterSpacing: 0.5 },
+
+  netProgress: {
     borderWidth: 1,
-    borderColor: colors.borderStrong,
+    borderColor: colors.warning,
     borderRadius: radius.md,
-    overflow: "hidden",
-    marginBottom: spacing.lg,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    backgroundColor: "rgba(255,176,32,0.05)",
   },
-  map: { width: "100%", height: "100%" },
-  mapOverlay: {
-    position: "absolute",
-    left: spacing.md,
-    bottom: spacing.md,
-    right: spacing.md,
-  },
-  mapTitle: {
-    fontFamily: fonts.displayBold,
-    color: colors.brandPrimary,
-    fontSize: fontSize.xl,
-    letterSpacing: 2,
-  },
-  mapSub: {
-    fontFamily: fonts.body,
-    color: colors.onSurfaceSecondary,
-    fontSize: fontSize.xs,
-    marginTop: 2,
-    letterSpacing: 1,
-  },
+  netHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  netTitle: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.xs, letterSpacing: 1.5, flex: 1 },
+  netValue: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.base, letterSpacing: 1 },
+  netBar: { height: 4, backgroundColor: colors.surfaceTertiary, overflow: "hidden" },
+  netFill: { height: 4, backgroundColor: colors.warning },
+  netSub: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 6, letterSpacing: 0.5 },
+
   sectionTitle: {
     fontFamily: fonts.displayBold,
     color: colors.brandPrimary,
     fontSize: fontSize.lg,
     letterSpacing: 2,
     marginBottom: spacing.md,
-  },
-  threatCard: { marginBottom: spacing.md, paddingTop: spacing.sm },
-  threatHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: spacing.sm,
-    justifyContent: "space-between",
-  },
-  classBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  classBadgeText: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSize.xs,
-    letterSpacing: 1.5,
-  },
-  classTag: {
-    fontFamily: fonts.display,
-    color: colors.onSurfaceTertiary,
-    fontSize: 10,
-    letterSpacing: 1.5,
-  },
-  threatBody: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: spacing.sm,
-  },
-  threatName: {
-    fontFamily: fonts.displayBold,
-    color: colors.onSurface,
-    fontSize: fontSize.lg,
-    letterSpacing: 1.5,
-  },
-  threatLoc: {
-    fontFamily: fonts.body,
-    color: colors.onSurfaceSecondary,
-    fontSize: fontSize.xs,
-    marginTop: 2,
-  },
-  levelBadge: {
-    width: 40,
-    height: 40,
-    borderWidth: 1,
-    borderColor: colors.brandSecondary,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,51,102,0.1)",
-  },
-  levelBadgeText: {
-    fontFamily: fonts.displayBold,
-    color: colors.brandSecondary,
-    fontSize: fontSize.xl,
-  },
-  threatDesc: {
-    fontFamily: fonts.body,
-    color: colors.onSurfaceSecondary,
-    fontSize: fontSize.sm,
-    lineHeight: 18,
-    marginBottom: spacing.sm,
-  },
-  threatFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     marginTop: spacing.sm,
   },
-  rewardRow: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
-  rewardText: {
-    fontFamily: fonts.displayBold,
-    color: colors.warning,
-    fontSize: fontSize.xs,
-    letterSpacing: 1,
-  },
-  regionsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  regionCard: {
-    width: "48%",
+
+  layerStack: { marginBottom: spacing.md, gap: 6 },
+  layerCard: {
     borderWidth: 1,
     borderRadius: radius.md,
     padding: spacing.sm,
     backgroundColor: colors.surfaceSecondary,
   },
-  regionTopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  layerHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  layerName: { fontFamily: fonts.displayBold, fontSize: fontSize.sm, letterSpacing: 1.5, flex: 1 },
+  layerHp: { fontFamily: fonts.display, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, letterSpacing: 1 },
+  layerBar: { height: 3, backgroundColor: colors.surfaceTertiary, overflow: "hidden", marginTop: 2 },
+  layerFill: { height: 3 },
+  layerAssignment: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 4, letterSpacing: 0.5 },
+
+  zoneGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md },
+  zoneCell: {
+    width: "31%",
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.xs,
+    backgroundColor: colors.surfaceSecondary,
     alignItems: "center",
-    marginBottom: 4,
+    gap: 4,
   },
-  regionState: {
-    fontFamily: fonts.displayBold,
-    fontSize: 9,
-    letterSpacing: 1,
+  zoneName: { fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 9, letterSpacing: 1, textAlign: "center" },
+  zoneBar: { height: 3, width: "100%", backgroundColor: colors.surfaceTertiary, overflow: "hidden" },
+  zoneFill: { height: 3 },
+  zoneInt: { fontFamily: fonts.displayBold, fontSize: fontSize.xs, letterSpacing: 0.5 },
+
+  sensorCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+    marginBottom: spacing.md,
   },
-  regionName: {
-    fontFamily: fonts.displayBold,
-    color: colors.onSurface,
-    fontSize: fontSize.sm,
-    letterSpacing: 1.2,
-  },
-  regionBonus: {
-    fontFamily: fonts.displayBold,
-    fontSize: fontSize.xs,
-    letterSpacing: 1,
-    marginTop: 2,
-    marginBottom: spacing.xs,
-  },
-  regionBar: {
-    height: 3,
-    backgroundColor: colors.surfaceTertiary,
-    overflow: "hidden",
-  },
-  regionBarFill: { height: 3 },
-  regionIntegrity: {
-    fontFamily: fonts.display,
-    color: colors.onSurfaceTertiary,
-    fontSize: 9,
-    marginTop: 3,
-    letterSpacing: 1,
-  },
-  apollyonCta: {
+  sensorTitle: { fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: fontSize.sm, letterSpacing: 1.5 },
+  sensorSub: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 2 },
+
+  apolCta: {
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: colors.brandSecondary,
     borderRadius: radius.md,
-    backgroundColor: "rgba(255,51,102,0.08)",
-    marginBottom: spacing.lg,
-  },
-  apollyonInner: {
-    flexDirection: "row",
-    alignItems: "center",
     padding: spacing.md,
+    backgroundColor: "rgba(255,51,102,0.1)",
+    marginBottom: spacing.md,
   },
-  apollyonTitle: {
-    fontFamily: fonts.displayBold,
-    color: colors.brandSecondary,
-    fontSize: fontSize.base,
-    letterSpacing: 1.5,
+  apolTitle: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.base, letterSpacing: 1.5 },
+  apolSub: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, marginTop: 2 },
+
+  defeatCard: {
+    borderWidth: 1,
+    borderColor: colors.brandSecondary,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: "rgba(255,51,102,0.08)",
+    alignItems: "center",
   },
-  apollyonSub: {
-    fontFamily: fonts.body,
-    color: colors.onSurfaceSecondary,
-    fontSize: fontSize.xs,
-    marginTop: 2,
-    letterSpacing: 0.5,
-  },
+  defeatTitle: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.lg, letterSpacing: 2 },
+  defeatBody: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.sm, textAlign: "center", marginTop: 6 },
+  resetBtn: { marginTop: spacing.sm, borderWidth: 1, borderColor: colors.brandSecondary, paddingVertical: spacing.sm, paddingHorizontal: spacing.lg },
+  resetText: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: fontSize.sm, letterSpacing: 1.5 },
 });

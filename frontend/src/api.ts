@@ -34,6 +34,109 @@ export type ApollyonState = {
   current_phase_info?: { name: string; narrative: string } | null;
 };
 
+// ==== Iteration 4 — Planetary Defense types ====
+
+export type ZoneId = "water" | "energy" | "biomass" | "minerals" | "industry" | "rare" | "tech";
+export type LayerId = "deep_space" | "orbital" | "atmosphere" | "ground" | "resource_zones";
+
+export type ResourceZone = {
+  id: ZoneId;
+  name: string;
+  icon: string;
+  weight: number;
+  color: string;
+  integrity: number;
+};
+
+export type DefenseLayer = {
+  id: LayerId;
+  name: string;
+  max_hp: number;
+  hp: number;
+  assigned_robots: string[];
+  icon: string;
+};
+
+export type Adaptation = {
+  name: string;
+  counters: string;
+  penalty: number;
+  note: string;
+  trigger_weapon: string;
+};
+
+export type ProtocolRule = {
+  id?: string;
+  name: string;
+  priority: number;
+  enabled: boolean;
+  conditions: { key: string; op?: string; value: string }[];
+  actions: { key: string; value: string }[];
+};
+
+export type DefenseState = {
+  viability: number;
+  layers: Record<LayerId, DefenseLayer>;
+  zones: ResourceZone[];
+  sensor_tier: 1 | 2 | 3;
+  network_progress: string[];
+  protocols: ProtocolRule[];
+  adaptations: Adaptation[];
+  last_wave: any | null;
+  wave_count: number;
+  network_complete: boolean;
+  peace_achieved: boolean;
+  apollyon_victory?: boolean;
+};
+
+export type NetworkNode = {
+  id: string;
+  name: string;
+  icon: string;
+  cost: Partial<Record<"energy" | "materials" | "compute" | "research", number>>;
+  layer: LayerId | null;
+};
+
+export type WaveIntel = {
+  level: number;
+  total_detected: number | null;
+  unknown_signatures: number | null;
+  breakdown: Record<string, number> | null;
+  stealth_warning: boolean;
+};
+
+export type RevealedShip = {
+  id: string;
+  type: string;
+  type_display: string;
+  hp: number;
+  power: number;
+  harvest: number;
+  target: string | null;
+};
+
+export type ScanResult = {
+  wave_id: string;
+  wave_number: number;
+  intel: WaveIntel;
+  revealed: RevealedShip[];
+  adaptations: Adaptation[];
+};
+
+export type EngageResult = {
+  wave_id: string;
+  wave_number: number;
+  outcome: "victory" | "partial" | "apollyon_victory";
+  log: any[];
+  viability_after: number;
+  layers_after: Record<LayerId, DefenseLayer>;
+  zones_after: ResourceZone[];
+  adaptations: Adaptation[];
+  surviving_ships: number;
+  rewards: { xp: number; research: number; materials: number };
+  resources: Resources;
+};
+
 export type Player = {
   id: string;
   codename: string;
@@ -48,6 +151,7 @@ export type Player = {
   weapon_usage: Record<string, number>;
   regions: Region[];
   apollyon: ApollyonState;
+  defense?: DefenseState | null;
 };
 
 export type Robot = {
@@ -255,6 +359,79 @@ export const api = {
       body: JSON.stringify(payload),
     });
     return j(res);
+  },
+
+  // ==== Iteration 4 — Planetary Defense ====
+  async defenseConfig(): Promise<{
+    layers: { id: LayerId; name: string; max_hp: number; icon: string }[];
+    zones: ResourceZone[];
+    network_nodes: NetworkNode[];
+    ship_types: Record<string, any>;
+    viability_critical: number;
+  }> {
+    return j(await fetch(`${API}/defense/config`));
+  },
+  async defenseState(playerId: string): Promise<DefenseState> {
+    return j(await fetch(`${API}/defense/state/${playerId}`));
+  },
+  async defenseAssign(payload: { player_id: string; robot_id: string; layer_id: LayerId }): Promise<any> {
+    const res = await fetch(`${API}/defense/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async defenseUnassign(payload: { player_id: string; robot_id: string }): Promise<any> {
+    const res = await fetch(`${API}/defense/unassign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async defenseRepair(payload: { player_id: string; layer_id: LayerId }): Promise<any> {
+    const res = await fetch(`${API}/defense/repair`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async saveProtocols(payload: { player_id: string; protocols: ProtocolRule[] }): Promise<any> {
+    const res = await fetch(`${API}/defense/protocols`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async invasionScan(playerId: string): Promise<ScanResult> {
+    const res = await fetch(`${API}/invasion/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ player_id: playerId }),
+    });
+    return j(res);
+  },
+  async invasionEngage(payload: { player_id: string; wave_id: string }): Promise<EngageResult> {
+    const res = await fetch(`${API}/invasion/engage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async networkBuild(payload: { player_id: string; node_id: string }): Promise<any> {
+    const res = await fetch(`${API}/network/build`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    return j(res);
+  },
+  async defenseReset(playerId: string): Promise<DefenseState> {
+    return j(await fetch(`${API}/defense/reset/${playerId}`, { method: "POST" }));
   },
 };
 
