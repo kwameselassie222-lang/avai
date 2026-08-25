@@ -316,3 +316,24 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
 - Victory NEXT button on levels 1-9 → `/story?level=nextId`
 - Victory on L10 → replaces `EPILOGUE` label → `/epilogue` route
 - Defeat RETRY → `/battle?level=<same>` (no story replay)
+
+## Iteration 12 — AI Flavor Replay + Codex (June 2026)
+
+### AI Flavor Replay (`?flavor=1`)
+- Story screen accepts `?flavor=1` param → fetches `/api/v2/story/{id}?flavor=true`
+- Backend uses Gemini 3 Flash (Emergent LLM Key) with a comic-panel system prompt
+  ("ALL CAPS headers, staccato bold lines, ≤3 short lines, cinematic")
+- Rendered as a dashed orange "◆ FRESH INTEL — A.I. NARRATIVE CORE" banner above the panels
+- Markdown asterisks stripped from the AI output for clean display
+
+### Codex Menu (Home)
+- New CODEX card on Home (purple), 5th action in the grid
+- Sub-label shows how many briefings archived (respects L1 unlock only vs. more)
+- Tapping opens a full "WAR CODEX" modal with all 10 level rows:
+  - Numbered badge (locked → lock icon)
+  - Level name + world tag + BOSS badge on L10
+  - Star count per level
+  - Purple play-circle icon for unlocked levels
+- Tapping an unlocked row navigates to `/story?level=X&force=1&flavor=1`
+  → forces the intro to show + adds AI flavor for a fresh comic twist
+- Locked rows visually disabled (opacity 0.4, no touch)

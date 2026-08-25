@@ -530,6 +530,8 @@ export default function BattleScreen() {
                     setReady(false);
                     setSelectedRobot(null);
                     // Victory → route through /story so a new level gets its intro
+                    // Note: fresh levels have never been seen, so they show base intros.
+                    // Replays through Codex or /story?level=X&force=1&flavor=1 get AI flavor.
                     if (result.victory) {
                       router.replace(`/story?level=${nextId}`);
                     } else {

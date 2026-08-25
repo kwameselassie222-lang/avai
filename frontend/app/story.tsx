@@ -25,9 +25,10 @@ const ALIEN_LABELS: Record<string, string> = {
 
 export default function StoryScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ level?: string; force?: string }>();
+  const params = useLocalSearchParams<{ level?: string; force?: string; flavor?: string }>();
   const levelId = Number(params.level || 1);
   const force = params.force === "1";
+  const flavorReq = params.flavor === "1";
 
   const [story, setStory] = useState<V2Story | null>(null);
   const [config, setConfig] = useState<V2Config | null>(null);
@@ -51,7 +52,7 @@ export default function StoryScreen() {
         }
       }
       try {
-        const [s, c] = await Promise.all([api.v2Story(levelId), api.v2Config()]);
+        const [s, c] = await Promise.all([api.v2Story(levelId, flavorReq), api.v2Config()]);
         if (cancelled) return;
         setStory(s);
         setConfig(c);
@@ -63,7 +64,7 @@ export default function StoryScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [levelId, force, router]);
+  }, [levelId, force, flavorReq, router]);
 
   // Panel entrance animation
   const animateIn = useCallback(() => {
@@ -142,6 +143,21 @@ export default function StoryScreen() {
 
         {/* Comic panel */}
         <ScrollView contentContainerStyle={styles.scroll}>
+          {/* AI-generated flavor line (replays only) */}
+          {story.flavor_line && (
+            <View style={styles.flavorBox}>
+              <View style={styles.flavorHeader}>
+                <MaterialCommunityIcons name="broadcast" size={14} color={colors.warning} />
+                <Text style={styles.flavorLabel}>◆ FRESH INTEL — A.I. NARRATIVE CORE</Text>
+              </View>
+              {story.flavor_line.split("\n").filter((l) => l.trim()).map((line, i) => (
+                <Text key={i} style={styles.flavorLine}>
+                  {line.trim().replace(/\*\*/g, "").replace(/^[-*•]\s*/, "")}
+                </Text>
+              ))}
+            </View>
+          )}
+
           <Animated.View
             style={[
               styles.panel,
@@ -276,6 +292,26 @@ const styles = StyleSheet.create({
     width: 60, marginTop: spacing.sm,
   },
   scroll: { padding: spacing.lg, paddingTop: 0 },
+
+  flavorBox: {
+    borderWidth: 1, borderColor: colors.warning,
+    padding: spacing.md, marginTop: spacing.md,
+    backgroundColor: "rgba(255,176,32,0.08)",
+    borderStyle: "dashed",
+  },
+  flavorHeader: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    marginBottom: spacing.sm,
+  },
+  flavorLabel: {
+    fontFamily: fonts.displayBold, color: colors.warning,
+    fontSize: 10, letterSpacing: 1.5,
+  },
+  flavorLine: {
+    fontFamily: fonts.mono, color: colors.onSurface,
+    fontSize: fontSize.sm, lineHeight: 20,
+    marginBottom: 2,
+  },
 
   panel: {
     borderWidth: 3, borderColor: colors.onSurface, backgroundColor: colors.surface,

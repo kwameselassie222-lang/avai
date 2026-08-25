@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Modal } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -13,6 +13,7 @@ export default function HomeScreen() {
   const [codename, setCodename] = useState<string>("COMMANDER");
   const [config, setConfig] = useState<V2Config | null>(null);
   const [loading, setLoading] = useState(true);
+  const [codexOpen, setCodexOpen] = useState(false);
 
   const load = useCallback(async () => {
     const id = await storage.getPlayerId();
@@ -82,11 +83,81 @@ export default function HomeScreen() {
           <ActionCard icon="robot" label="ROBOTS" sub={`${camp.unlocked_robots.length} unlocked`} color={colors.brandPrimary} onPress={() => router.push("/(tabs)/builder")} />
           <ActionCard icon="map"   label="MAP"    sub={`${camp.level}/${config.levels.length} unlocked`} color={colors.success} onPress={() => router.push("/(tabs)/fleet")} />
           <ActionCard icon="account-hard-hat" label="COMMANDER" sub={`Stage ${camp.commander_stage}/5`} color={colors.warning} onPress={() => router.push("/(tabs)/leaderboard")} />
-          <ActionCard icon="store" label="STORE" sub="Cosmetics" color="#B57BFF" onPress={() => router.push("/store")} />
+          <ActionCard icon="book-open-page-variant" label="CODEX" sub={`${camp.level} briefing${camp.level === 1 ? "" : "s"} archived`} color="#B57BFF" onPress={() => setCodexOpen(true)} />
         </View>
 
         <Text style={styles.tip}>◆ TAP BATTLE — Choose a robot, tap the battlefield to deploy. Destroy the alien core.</Text>
       </ScrollView>
+
+      {/* CODEX Modal */}
+      <Modal transparent animationType="fade" visible={codexOpen} onRequestClose={() => setCodexOpen(false)}>
+        <View style={styles.codexBackdrop}>
+          <View style={styles.codexCard}>
+            <View style={styles.codexHeader}>
+              <MaterialCommunityIcons name="book-open-page-variant" size={26} color="#B57BFF" />
+              <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                <Text style={styles.codexTitle}>WAR CODEX</Text>
+                <Text style={styles.codexSub}>REPLAY ANY BRIEFING · AI-FLAVORED</Text>
+              </View>
+              <Pressable onPress={() => setCodexOpen(false)} style={styles.codexClose}>
+                <MaterialCommunityIcons name="close" size={20} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView contentContainerStyle={styles.codexList}>
+              {config.levels.map((L) => {
+                const unlocked = L.id <= camp.level;
+                const stars = camp.stars[String(L.id)] || 0;
+                const isBoss = !!L.boss;
+                return (
+                  <Pressable
+                    key={L.id}
+                    onPress={() => {
+                      if (!unlocked) return;
+                      setCodexOpen(false);
+                      router.push(`/story?level=${L.id}&force=1&flavor=1`);
+                    }}
+                    disabled={!unlocked}
+                    style={[styles.codexRow, {
+                      borderColor: !unlocked ? colors.border : isBoss ? colors.brandSecondary : "#B57BFF",
+                      opacity: unlocked ? 1 : 0.4,
+                    }]}
+                    testID={`codex-${L.id}`}
+                  >
+                    <View style={[styles.codexNum, { borderColor: isBoss ? colors.brandSecondary : "#B57BFF" }]}>
+                      {unlocked ? (
+                        <Text style={[styles.codexNumText, { color: isBoss ? colors.brandSecondary : "#B57BFF" }]}>
+                          {String(L.id).padStart(2, "0")}
+                        </Text>
+                      ) : (
+                        <MaterialCommunityIcons name="lock" size={12} color={colors.onSurfaceTertiary} />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.codexName}>{L.name}</Text>
+                      <Text style={styles.codexMeta}>
+                        WORLD {L.world}{isBoss ? " · ⚠ BOSS" : ""}
+                      </Text>
+                    </View>
+                    <View style={styles.codexStars}>
+                      {[1, 2, 3].map((n) => (
+                        <MaterialCommunityIcons
+                          key={n}
+                          name={n <= stars ? "star" : "star-outline"}
+                          size={12}
+                          color={n <= stars ? colors.warning : colors.onSurfaceTertiary}
+                        />
+                      ))}
+                    </View>
+                    {unlocked && (
+                      <MaterialCommunityIcons name="play-circle" size={22} color="#B57BFF" style={{ marginLeft: spacing.sm }} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -146,4 +217,52 @@ const styles = StyleSheet.create({
   actionSub: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, letterSpacing: 0.5 },
 
   tip: { fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, textAlign: "center", marginTop: spacing.lg, letterSpacing: 0.5 },
+
+  // Codex modal
+  codexBackdrop: {
+    flex: 1, backgroundColor: "rgba(5,8,16,0.9)",
+    alignItems: "center", justifyContent: "center", padding: spacing.lg,
+  },
+  codexCard: {
+    width: "100%", maxWidth: 380, maxHeight: "80%",
+    borderWidth: 2, borderColor: "#B57BFF", borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    shadowColor: "#B57BFF", shadowOpacity: 0.4, shadowRadius: 12,
+  },
+  codexHeader: {
+    flexDirection: "row", alignItems: "center", padding: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  codexTitle: {
+    fontFamily: fonts.displayBold, color: "#B57BFF",
+    fontSize: fontSize.xl, letterSpacing: 3,
+  },
+  codexSub: {
+    fontFamily: fonts.display, color: colors.onSurfaceTertiary,
+    fontSize: 10, letterSpacing: 1.5, marginTop: 2,
+  },
+  codexClose: { padding: 4 },
+  codexList: { padding: spacing.md, gap: spacing.sm },
+  codexRow: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderRadius: radius.md,
+    padding: spacing.sm, gap: spacing.sm,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  codexNum: {
+    width: 34, height: 34, borderRadius: 17, borderWidth: 1,
+    alignItems: "center", justifyContent: "center",
+  },
+  codexNumText: {
+    fontFamily: fonts.displayBold, fontSize: fontSize.sm, letterSpacing: 1,
+  },
+  codexName: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: fontSize.sm, letterSpacing: 1,
+  },
+  codexMeta: {
+    fontFamily: fonts.body, color: colors.onSurfaceTertiary,
+    fontSize: fontSize.xs, marginTop: 2, letterSpacing: 0.5,
+  },
+  codexStars: { flexDirection: "row", gap: 2 },
 });
