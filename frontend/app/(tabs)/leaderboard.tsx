@@ -2,7 +2,7 @@ import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api, storage, V2Campaign, V2Config } from "@/src/api";
 
@@ -14,6 +14,7 @@ const ABILITY_ICONS: Record<string, string> = {
 };
 
 export default function CommanderScreen() {
+  const router = useRouter();
   const [config, setConfig] = useState<V2Config | null>(null);
   const [camp, setCamp] = useState<V2Campaign | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,31 @@ export default function CommanderScreen() {
     } catch (e: any) {
       Alert.alert("EVOLUTION LOCKED", String(e.message || e));
     } finally { setBusy(false); }
+  };
+
+  const resetProgress = () => {
+    Alert.alert(
+      "RESET PROGRESS?",
+      "This will delete your codename, stars, robots, resources, and ability picks. You'll start World 1 from Level 1.\n\nThis cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Wipe All",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setBusy(true);
+              await storage.clear();
+              router.replace("/");
+            } catch (e: any) {
+              Alert.alert("ERR", String(e.message || e));
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   if (loading || !config || !camp) return <View style={styles.loader}><ActivityIndicator color={colors.brandPrimary} /></View>;
@@ -111,6 +137,24 @@ export default function CommanderScreen() {
             </Pressable>
           );
         })}
+        <View style={{ height: 24 }} />
+
+        {/* Danger zone: Reset Progress */}
+        <Text style={styles.dangerHeader}>▮ DANGER ZONE</Text>
+        <Pressable
+          onPress={resetProgress}
+          disabled={busy}
+          style={styles.resetBtn}
+          testID="btn-reset-progress"
+        >
+          <MaterialCommunityIcons name="delete-alert-outline" size={22} color="#FF3366" />
+          <View style={{ flex: 1, marginLeft: spacing.sm }}>
+            <Text style={styles.resetTitle}>RESET ALL PROGRESS</Text>
+            <Text style={styles.resetHint}>Wipes codename, stars, unlocks & resources. Start World 1 fresh.</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={20} color="#FF3366" />
+        </Pressable>
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
@@ -140,4 +184,20 @@ const styles = StyleSheet.create({
   ability: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: radius.md, padding: spacing.sm, marginBottom: 6 },
   abilityName: { fontFamily: fonts.displayBold, fontSize: fontSize.sm, letterSpacing: 1.2 },
   abilityDesc: { fontFamily: fonts.body, color: colors.onSurfaceTertiary, fontSize: fontSize.xs, marginTop: 2 },
+  dangerHeader: {
+    fontFamily: fonts.displayBold, color: "#FF3366", fontSize: fontSize.sm,
+    letterSpacing: 1.5, marginTop: spacing.md, marginBottom: spacing.sm,
+  },
+  resetBtn: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1, borderColor: "#FF3366", borderRadius: radius.md,
+    paddingVertical: spacing.md, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(255,51,102,0.08)",
+  },
+  resetTitle: {
+    fontFamily: fonts.displayBold, color: "#FF3366", fontSize: fontSize.sm, letterSpacing: 1.5,
+  },
+  resetHint: {
+    fontFamily: fonts.body, color: colors.onSurfaceSecondary, fontSize: fontSize.xs, marginTop: 3,
+  },
 });

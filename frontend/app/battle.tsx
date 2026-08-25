@@ -11,6 +11,7 @@ import {
   BattleState, initBattle, tick, deployRobot, useAbility as applyAbility,
   computeStars, Lane, drainSounds, SoundEvent,
   buildLevelBrief, LevelBrief, getRobotCategory,
+  SECRET_BOSS_COMBO,
 } from "@/src/game/engine";
 
 const LANES: Lane[] = ["left", "center", "right"];
@@ -510,6 +511,51 @@ export default function BattleScreen() {
           </View>
         )}
 
+        {/* Boss RELOAD WINDOW — vulnerable state, secret combo cue */}
+        {state.boss_reload_active && (
+          <View pointerEvents="none" style={styles.reloadBanner}>
+            <View style={styles.reloadPulse}>
+              <MaterialCommunityIcons name="target" size={20} color="#B57BFF" />
+              <Text style={styles.reloadText}>⚠ HIVE QUEEN VULNERABLE</Text>
+              <Text style={styles.reloadSub}>
+                {Math.max(0, state.boss_reload_end - state.time).toFixed(1)}s — RELOADING
+              </Text>
+            </View>
+            {/* Combo progress dots — shows how many correct taps landed */}
+            <View style={styles.comboDots}>
+              {SECRET_BOSS_COMBO.map((_, i) => {
+                const filled = state.boss_combo_taps[i] === SECRET_BOSS_COMBO[i];
+                const wrong = state.boss_combo_taps[i] && state.boss_combo_taps[i] !== SECRET_BOSS_COMBO[i];
+                return (
+                  <View key={i} style={[
+                    styles.comboDot,
+                    filled && { backgroundColor: "#FFEE55", borderColor: "#FFEE55" },
+                    wrong && { borderColor: "#FF3366" },
+                  ]}>
+                    <Text style={[
+                      styles.comboDotText,
+                      filled && { color: "#000" },
+                      wrong && { color: "#FF3366" },
+                    ]}>{i + 1}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+        )}
+
+        {/* Boss OVERDRIVE combo hit flash */}
+        {state.boss_combo_hit_at > 0 && state.time - state.boss_combo_hit_at < 1.4 && (
+          <View pointerEvents="none" style={[
+            styles.overdriveBanner,
+            { opacity: Math.max(0, 1 - (state.time - state.boss_combo_hit_at) / 1.4) },
+          ]}>
+            <MaterialCommunityIcons name="flash-triangle" size={26} color="#FFEE55" />
+            <Text style={styles.overdriveText}>◆ OVERDRIVE COMBO</Text>
+            <Text style={styles.overdriveSub}>-35% BOSS HP</Text>
+          </View>
+        )}
+
         {/* Combo banner (fades out after 1.4s) */}
         {state.combo && state.time - state.combo.time < 1.4 && (
           <View pointerEvents="none" style={[
@@ -689,6 +735,18 @@ export default function BattleScreen() {
                     <Text style={styles.briefTipText}>{t}</Text>
                   </View>
                 ))}
+                {brief.boss && (
+                  <View style={[styles.briefTip, {
+                    marginTop: 6, paddingVertical: 6, paddingHorizontal: 8,
+                    backgroundColor: "rgba(181,123,255,0.10)",
+                    borderLeftWidth: 2, borderLeftColor: "#B57BFF",
+                  }]}>
+                    <Text style={[styles.briefTipBullet, { color: "#B57BFF" }]}>◆</Text>
+                    <Text style={[styles.briefTipText, { color: "#D9C3FF", fontStyle: "italic" }]}>
+                      {"Intel intercept: \u201CThe queen must reload. When her shields drop, the trinity of range, iron, and speed strikes true.\u201D"}
+                    </Text>
+                  </View>
+                )}
               </View>
 
               <Pressable
@@ -1053,6 +1111,58 @@ const styles = StyleSheet.create({
   counterSub: {
     fontFamily: fonts.displayBold, color: colors.onSurface,
     fontSize: 10, letterSpacing: 2, marginTop: 2,
+  },
+
+  // Boss reload / secret combo banner
+  reloadBanner: {
+    position: "absolute", top: "22%", left: "8%", right: "8%",
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(181,123,255,0.22)",
+    borderWidth: 2, borderColor: "#B57BFF", borderRadius: radius.md,
+    shadowColor: "#B57BFF", shadowOpacity: 0.9, shadowRadius: 14,
+  },
+  reloadPulse: {
+    alignItems: "center", justifyContent: "center",
+  },
+  reloadText: {
+    fontFamily: fonts.displayBold, color: "#B57BFF",
+    fontSize: fontSize.base, letterSpacing: 3, marginTop: 4,
+    textShadowColor: "#B57BFF", textShadowRadius: 8,
+  },
+  reloadSub: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: 10, letterSpacing: 2, marginTop: 2,
+  },
+  comboDots: {
+    flexDirection: "row", gap: 8, marginTop: 8,
+  },
+  comboDot: {
+    width: 26, height: 26, borderRadius: 4,
+    borderWidth: 2, borderColor: "#B57BFF",
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  comboDotText: {
+    fontFamily: fonts.displayBold, fontSize: 12, color: "#B57BFF", letterSpacing: 1,
+  },
+
+  overdriveBanner: {
+    position: "absolute", top: "40%", left: "10%", right: "10%",
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: spacing.md, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(255,238,85,0.22)",
+    borderWidth: 3, borderColor: "#FFEE55", borderRadius: radius.md,
+    shadowColor: "#FFEE55", shadowOpacity: 1, shadowRadius: 20,
+  },
+  overdriveText: {
+    fontFamily: fonts.displayBold, color: "#FFEE55",
+    fontSize: fontSize.xl, letterSpacing: 4, marginTop: 4,
+    textShadowColor: "#FFEE55", textShadowRadius: 10,
+  },
+  overdriveSub: {
+    fontFamily: fonts.displayBold, color: colors.warning,
+    fontSize: 11, letterSpacing: 3, marginTop: 4,
   },
 
   // Resource strip (pain economy)

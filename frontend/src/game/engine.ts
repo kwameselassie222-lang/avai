@@ -80,6 +80,22 @@ const REDEPLOY_PENALTY_WINDOW = 3.0;   // sec — same robot same lane costs +50
 const COUNTER_COOLDOWN = 12.0;         // alien commander responds at most every 12s (was 8)
 const COUNTER_DELAY_MIN = 5.0;
 const COUNTER_DELAY_MAX = 7.5;
+// ==== BOSS RELOAD CYCLE ====
+const BOSS_RELOAD_INTERVAL = 16.0;     // seconds between reload windows
+const BOSS_RELOAD_DURATION = 4.5;      // window length
+// The hidden 3-robot combo — deploy in this order during a reload window
+export const SECRET_BOSS_COMBO: string[] = ["sniper", "titan", "scout"];
+const BOSS_OVERDRIVE_PCT = 0.35;       // % of max HP dealt on combo trigger
+
+// ==== Boxing-match difficulty curve per level ====
+// L1-L2 gentle (tutorial), L3-L7 matched, L8-L9 tough, L10 boss sweat
+function levelDifficultyMult(levelId: number): number {
+  if (levelId <= 2) return 0.65;   // gentle onboarding
+  if (levelId <= 4) return 0.85;
+  if (levelId <= 7) return 1.00;
+  if (levelId <= 9) return 1.20;
+  return 1.45;                      // L10 boss
+}
 
 export type Particle = {
   id: string;
@@ -142,6 +158,14 @@ export type BattleState = {
   counter_label: string;
   // ==== Lane-lock: same robot / same lane discourager ====
   lane_deploy_time: Record<string, number>; // key = `${robotId}:${lane}` -> time
+  // ==== BOSS RELOAD CYCLE (secret combo window) ====
+  boss_reload_next: number;      // next reload window opens
+  boss_reload_end: number;       // when current window closes
+  boss_reload_active: boolean;
+  boss_combo_taps: string[];     // robots deployed during current window
+  boss_combo_hit_at: number;     // last successful combo time (for fx)
+  boss_combo_flash_at: number;   // fx trigger
+  boss_overdrive_count: number;  // how many combos landed this fight
 };
 
 const ENERGY_REGEN_PER_SEC = 0.9;      // was 0.4 — much faster reload
@@ -258,6 +282,14 @@ export function initBattle(
     counter_pending: null,
     counter_label: "",
     lane_deploy_time: {},
+    // Boss reload cycle (retro "vulnerability window")
+    boss_reload_next: 14,       // first reload window opens ~14s after boss spawn
+    boss_reload_end: -999,
+    boss_reload_active: false,
+    boss_combo_taps: [],
+    boss_combo_hit_at: -999,
+    boss_combo_flash_at: -999,
+    boss_overdrive_count: 0,
   };
 }
 
@@ -290,6 +322,44 @@ export function deployRobot(state: BattleState, robotId: string, lane: Lane): bo
   state.events.push(penalized ? `▮ ${r.name} deployed (·×1.5 cost)` : `▮ ${r.name} deployed`);
   if (state.events.length > 8) state.events.shift();
   queueSound(state, "deploy");
+
+  // ==== Boss reload window combo capture ====
+  if (state.boss_reload_active) {
+    state.boss_combo_taps.push(r.id);
+    // Only care about last N robots in sequence
+    if (state.boss_combo_taps.length > SECRET_BOSS_COMBO.length) {
+      state.boss_combo_taps = state.boss_combo_taps.slice(-SECRET_BOSS_COMBO.length);
+    }
+    // Check exact match
+    const taps = state.boss_combo_taps;
+    if (taps.length === SECRET_BOSS_COMBO.length
+        && taps.every((rid, i) => rid === SECRET_BOSS_COMBO[i])) {
+      // OVERDRIVE — deal a chunk of boss max HP directly
+      const boss = state.entities.find((e) => e.type === "hive_queen" && e.hp > 0);
+      if (boss) {
+        const dmg = boss.max_hp * BOSS_OVERDRIVE_PCT;
+        boss.hp = Math.max(0, boss.hp - dmg);
+        boss.last_hit_at = state.time;
+        state.boss_combo_hit_at = state.time;
+        state.boss_combo_flash_at = state.time;
+        state.boss_overdrive_count += 1;
+        state.screen_shake = 1;
+        // Big particle burst
+        for (let i = 0; i < 14; i++) {
+          state.particles.push({
+            id: uid(), lane: boss.lane, y: boss.y,
+            color: "#FFEE55", size: 26,
+            born_at: state.time + i * 0.04, ttl: 0.7, kind: "explode",
+          });
+        }
+        state.events.push(`◆ OVERDRIVE COMBO! -${Math.round(dmg)} HP`);
+        if (state.events.length > 8) state.events.shift();
+        queueSound(state, "combo");
+        queueSound(state, "boss");
+      }
+      state.boss_combo_taps = []; // reset
+    }
+  }
 
   // ==== Alien Commander AI: schedule counter-deploy ====
   if (state.time - state.counter_last_at > COUNTER_COOLDOWN && !state.counter_pending) {
@@ -345,8 +415,9 @@ function spawnAlien(state: BattleState, wave: { type: string; lane: Lane }, leve
   if (!a) return;
   // Global bump applies to ALL difficulties; veteran multiplies further.
   const vet = state.difficulty === "veteran" ? 1.3 : 1.0;
-  const diff = level.difficulty * GLOBAL_HP_MULT * vet;
-  const atkDiff = level.difficulty * GLOBAL_ATK_MULT * vet;
+  const boxing = levelDifficultyMult(level.id);
+  const diff = level.difficulty * GLOBAL_HP_MULT * vet * boxing;
+  const atkDiff = level.difficulty * GLOBAL_ATK_MULT * vet * boxing;
   const category = ALIEN_CATEGORY[a.id] || "swarm";
   const lvl = level.id;
   // Attach abilities progressively as world advances
@@ -586,6 +657,38 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
         state.events.push("◆ CRAWLER SWARM SUMMONED");
         if (state.events.length > 8) state.events.shift();
         queueSound(state, "ability");
+      }
+
+      // ==== BOSS RELOAD WINDOW (secret combo opportunity) ====
+      // Boss "reloads" periodically — briefly disarmed. Player deploys the
+      // hidden robot sequence during this window to trigger OVERDRIVE.
+      const bossAge = state.time - (state.boss_intro_at || state.time);
+      if (bossAge >= state.boss_reload_next && !state.boss_reload_active) {
+        state.boss_reload_active = true;
+        state.boss_reload_end = state.time + BOSS_RELOAD_DURATION;
+        state.boss_combo_taps = [];
+        state.boss_combo_flash_at = state.time;
+        // Freeze the boss during reload (can't attack)
+        boss.stun = BOSS_RELOAD_DURATION;
+        state.events.push("⚠ HIVE QUEEN — VULNERABLE (RELOADING)");
+        if (state.events.length > 8) state.events.shift();
+        queueSound(state, "boss");
+        // Purple weakness glow particles around the boss
+        for (let i = 0; i < 8; i++) {
+          state.particles.push({
+            id: uid(), lane: boss.lane, y: boss.y,
+            color: "#B57BFF", size: 20,
+            born_at: state.time + i * 0.06, ttl: 0.9, kind: "hit",
+          });
+        }
+      }
+      if (state.boss_reload_active && state.time >= state.boss_reload_end) {
+        state.boss_reload_active = false;
+        state.boss_combo_taps = [];
+        // Schedule next reload window
+        state.boss_reload_next = bossAge + BOSS_RELOAD_INTERVAL;
+        state.events.push("◆ HIVE QUEEN — SHIELDS ONLINE");
+        if (state.events.length > 8) state.events.shift();
       }
     }
   }

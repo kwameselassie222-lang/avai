@@ -543,3 +543,35 @@ Every level is now literally a solvable puzzle:
 2. Player picks robots whose category chip is cyan-highlighted (matches counters).
 3. Player deploys them in the hot lane the tips highlighted.
 4. Energy regen is fast enough that a smart, patient player can always respond.
+
+## Iteration 15 (Boxing Match + Boss Reload Combo + Reset) — 2026-06
+
+### Boxing-Match Difficulty Curve
+Levels now scale like a boxing tournament rather than a flat cliff:
+- L1-L2: **0.65×** (tutorial-gentle, near-guaranteed win to teach mechanics)
+- L3-L4: **0.85×** (learning matchups)
+- L5-L7: **1.00×** (matched — the sweet spot)
+- L8-L9: **1.20×** (need upgrades to survive)
+- L10: **1.45×** (boss sweat, requires strategy + secret combo)
+
+Applied on top of level.difficulty × global multiplier × veteran multiplier.
+
+### Boss Reload Cycle + Secret Combo (Retro Boss Weakness)
+Classic Contra/Metroid mechanic. Hive Queen has a periodic vulnerable state:
+- Every **16 seconds** while active, boss enters a **4.5-second reload window**.
+- During reload: boss is STUNNED (can't attack), glows purple, "VULNERABLE — RELOADING" banner appears.
+- Player must deploy the **secret 3-robot sequence** `["sniper", "titan", "scout"]` in exact order during the window.
+- On success: **OVERDRIVE** — deals **35% of boss max HP** in one hit + big FX + haptic.
+- After match: sequence resets so player can chain overdrives across multiple reload windows.
+
+### Discoverability
+- During reload: three numbered slots appear on screen. Correct taps light up yellow; wrong ones outline red.
+- Tactical Brief for L10 shows the cryptic intel hint:
+  > "The queen must reload. When her shields drop, the trinity of range, iron, and speed strikes true."
+- Range = Sniper (ranged), Iron = Titan (heavy), Speed = Scout (light) — decodable by observing category chips.
+
+### Reset Progress (Danger Zone)
+- New section on Commander tab: `▮ DANGER ZONE`
+- Big red **RESET ALL PROGRESS** button with confirmation dialog.
+- On confirm: wipes `storage.clear()` (player_id + codename), navigates back to boot screen.
+- Player starts from scratch — new codename, World 1 L1, no unlocks, no stars.
