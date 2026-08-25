@@ -14,6 +14,14 @@ import {
 
 const LANES: Lane[] = ["left", "center", "right"];
 
+// Resource metadata (colors + icons match the "pain economy")
+const RESOURCE_META: { key: "cobalt" | "nickel" | "iron" | "gold"; label: string; color: string; icon: any }[] = [
+  { key: "cobalt", label: "COBALT", color: "#4A9EFF", icon: "diamond-stone" },
+  { key: "nickel", label: "NICKEL", color: "#B0B4C0", icon: "silverware-fork-knife" },
+  { key: "iron",   label: "IRON",   color: "#C97B4A", icon: "hammer-wrench" },
+  { key: "gold",   label: "GOLD",   color: "#FFD24A", icon: "gold" },
+];
+
 // Sound assets
 const SFX = {
   deploy: require("../assets/sfx/deploy.wav"),
@@ -62,10 +70,12 @@ export default function BattleScreen() {
   const soundsRef = useRef<Record<SoundEvent, ReturnType<typeof useAudioPlayer>>>({
     deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP,
     win: winP, lose: loseP, combo: comboP, boss: bossP,
+    counter: bossP, resource_lost: loseP,
   });
   soundsRef.current = {
     deploy: deployP, hit: hitP, explode: explodeP, ability: abilityP,
     win: winP, lose: loseP, combo: comboP, boss: bossP,
+    counter: bossP, resource_lost: loseP,
   };
 
   // Throttling for hit sfx so we don't spam the audio engine
@@ -110,6 +120,8 @@ export default function BattleScreen() {
       else if (kind === "ability") { p.volume = 0.7; }
       else if (kind === "combo") { p.volume = 0.75; try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {}); } catch {} }
       else if (kind === "boss") { p.volume = 0.85; try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {} }
+      else if (kind === "counter") { p.volume = 0.6; try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {}); } catch {} }
+      else if (kind === "resource_lost") { p.volume = 0.9; try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {}); } catch {} }
       else { p.volume = 0.8; }
       p.seekTo(0);
       p.play();
@@ -274,6 +286,32 @@ export default function BattleScreen() {
         <Text style={styles.timer}>{Math.floor(state.time)}s</Text>
       </View>
 
+      {/* Resource strip — the "pain" economy */}
+      <View style={styles.resourceStrip}>
+        {RESOURCE_META.map((r) => {
+          const val = state.resources[r.key];
+          const max = state.resources_max[r.key];
+          const pct = (val / max) * 100;
+          const flashAge = state.time - (state.resource_flash[r.key] || -999);
+          const flashing = flashAge >= 0 && flashAge < 0.35;
+          const critical = pct < 25;
+          const lost = state.resource_lost[r.key];
+          return (
+            <View key={r.key} style={[
+              styles.resourceCell,
+              flashing && { backgroundColor: "rgba(255,51,102,0.22)" },
+              lost && { opacity: 0.4 },
+            ]}>
+              <MaterialCommunityIcons name={r.icon} size={11} color={r.color} />
+              <View style={styles.resourceBarBg}>
+                <View style={[styles.resourceBarFill, { width: `${pct}%`, backgroundColor: critical ? "#FF3366" : r.color }]} />
+              </View>
+              <Text style={[styles.resourceVal, { color: critical ? "#FF3366" : colors.onSurface }]}>{Math.round(val)}</Text>
+            </View>
+          );
+        })}
+      </View>
+
       {/* Battlefield with shake */}
       <View style={[styles.field, { transform: [{ translateX: shakeX }, { translateY: shakeY }] }]}>
         {/* Alien core */}
@@ -395,6 +433,51 @@ export default function BattleScreen() {
             <Text style={styles.surgeSub}>ALL LANES — HOSTILES CONVERGE</Text>
           </View>
         )}
+
+        {/* Alien Commander counter-deploy banner */}
+        {state.counter_flash_at > 0 && state.time - state.counter_flash_at < 2.4 && (
+          <View pointerEvents="none" style={[
+            styles.counterBanner,
+            { opacity: Math.max(0, 1 - (state.time - state.counter_flash_at) / 2.4) },
+          ]}>
+            <MaterialCommunityIcons name="chess-king" size={20} color="#FF66AA" />
+            <Text style={styles.counterText}>⚠ COMMANDER RESPONDS</Text>
+            <Text style={styles.counterSub}>{state.counter_label}</Text>
+          </View>
+        )}
+
+        {/* Floating resource-drain damage numbers */}
+        {state.resource_events.map((ev, i) => {
+          const age = state.time - ev.time;
+          const prog = Math.min(1, age / 1.2);
+          const laneIdx = ev.lane === "left" ? 0 : ev.lane === "center" ? 1 : 2;
+          const meta = RESOURCE_META.find((r) => r.key === ev.kind)!;
+          return (
+            <View
+              key={`re-${ev.time}-${i}`}
+              pointerEvents="none"
+              style={{
+                position: "absolute",
+                left: `${laneIdx * 33.3 + 16.6}%`,
+                bottom: `${Math.min(96, ev.y + prog * 22)}%`,
+                transform: [{ translateX: -30 }],
+                opacity: 1 - prog,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 3,
+              }}
+            >
+              <MaterialCommunityIcons name={meta.icon} size={10} color={meta.color} />
+              <Text style={{
+                fontFamily: fonts.displayBold, fontSize: 10, letterSpacing: 1,
+                color: meta.color,
+                textShadowColor: "#000", textShadowRadius: 2,
+              }}>
+                -{ev.amount} {meta.label}
+              </Text>
+            </View>
+          );
+        })}
 
         {/* Boss phase-transition banner */}
         {state.boss_phase_flash_at > 0 && state.time - state.boss_phase_flash_at < 1.6 && (
@@ -827,5 +910,44 @@ const styles = StyleSheet.create({
   surgeSub: {
     fontFamily: fonts.displayBold, color: colors.onSurface,
     fontSize: 10, letterSpacing: 2, marginTop: 2,
+  },
+
+  // Counter banner (Alien Commander AI)
+  counterBanner: {
+    position: "absolute", top: "28%", left: "10%", right: "10%",
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(255,102,170,0.18)",
+    borderWidth: 2, borderColor: "#FF66AA", borderRadius: radius.md,
+    shadowColor: "#FF66AA", shadowOpacity: 0.6, shadowRadius: 10,
+  },
+  counterText: {
+    fontFamily: fonts.displayBold, color: "#FF66AA",
+    fontSize: fontSize.base, letterSpacing: 3, marginTop: 2,
+    textShadowColor: "#FF66AA", textShadowRadius: 8,
+  },
+  counterSub: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: 10, letterSpacing: 2, marginTop: 2,
+  },
+
+  // Resource strip (pain economy)
+  resourceStrip: {
+    flexDirection: "row", gap: 4,
+    paddingHorizontal: spacing.sm, paddingVertical: 4,
+    backgroundColor: "rgba(10,15,31,0.85)",
+    borderBottomWidth: 1, borderBottomColor: colors.borderStrong,
+  },
+  resourceCell: {
+    flex: 1, flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 4, paddingVertical: 2, borderRadius: 3,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  resourceBarBg: {
+    flex: 1, height: 4, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 2, overflow: "hidden",
+  },
+  resourceBarFill: { height: 4 },
+  resourceVal: {
+    fontFamily: fonts.displayBold, fontSize: 9, letterSpacing: 0.5, minWidth: 22, textAlign: "right",
   },
 });

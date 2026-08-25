@@ -451,3 +451,62 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
   - Speaker label shown next to icon (e.g. "APOLLYON", "DR. RENN")
 - Advancing panels (NEXT / SKIP) stops any playing voice
 - Speaker chip color-codes: A.I. Unit One cyan · Dr. Renn green · Apollyon red · Hive Queen magenta · Narrator grey
+
+## Iteration 13 (Chess Mode + Resource Pain Economy) — 2026-06
+Deep gameplay overhaul making every level significantly harder and more strategic.
+
+### Energy: Deploy + Attack Drain
+- Deploying a robot still costs energy (per-robot cost, e.g. Scout 2⚡, Titan 8⚡).
+- **NEW:** Each shot a player robot fires drains 0.22⚡ from the shared energy pool. Zero energy → robot misfires.
+- Energy regen reduced from 0.5 → 0.4/sec to preserve tension.
+- **Lane-lock penalty:** deploying the SAME robot in the SAME lane within 3 sec costs 1.5× energy (encourages lane diversity).
+
+### Rock-Paper-Scissors Matchups
+Robot categories: `light` (scout, drone), `heavy` (tank, titan), `ranged` (sniper, striker), `support` (guardian).
+Alien categories: `swarm` (crawler), `armored` (brute), `ranged` (spitter), `air` (flyer), `boss` (hive_queen).
+Advantage triangle: **ranged > swarm**, **heavy > ranged**, **light > armored**, **air > light**, **swarm > heavy**.
+- Advantage: 1.5× damage dealt.
+- Disadvantage: 0.7× damage taken.
+
+### Alien Commander AI (counter-deploys)
+- After each player deploy, the alien commander MAY spawn a hard-counter alien 3.5–5.5 sec later in the same lane.
+- Counter map: light→flyer, heavy→crawler, ranged→brute, support→spitter.
+- Cooldown of 8 sec between commander responses to keep it fair.
+- On-screen "⚠ COMMANDER RESPONDS" banner with the incoming alien + lane.
+
+### New Alien Abilities (progressive by level)
+- **Shielded** (armored L5+, swarm L6+): 60% dmg reduction on first N hits.
+- **Dodge** (ranged L3+, air L4+): 20-25% chance to fully negate a hit.
+- **Split on death** (swarm L7+): spawns 2 mini crawlers.
+- **Resurrect** (armored L9+, boss always): 25-35% chance to revive at 35% HP once.
+
+### Global Difficulty Bump (applies to Normal AND Veteran)
+- +35% HP, +25% ATK, +12% speed baseline.
+- Veteran stacks another 1.3× on top and doubles wave density.
+
+### Resource Pain Economy 🩸
+When aliens hit Earth, they don't just chip HP — they eat *the world's resources*.
+- Track 4 resources: **COBALT · NICKEL · IRON · GOLD** (each starts at 100).
+- Alien-to-resource mapping (each alien hits a signature resource):
+  - Crawler → NICKEL
+  - Spitter → COBALT
+  - Brute → IRON
+  - Flyer → GOLD
+  - Hive Queen → IRON (random for core hits)
+- Core hit: drains 3–8 units of a random resource + earth_hp.
+- Robot hit: drains 1–3 units of the alien's signature resource.
+- Depletion cascade: first time a resource hits 0 → Earth loses 20% of max HP + civilian toll message:
+  - "COBALT MINES OVERRUN — 40,000 DISPLACED"
+  - "NICKEL REFINERY FALLEN — 28,000 DISPLACED"
+  - "IRON WORKS OVERRUN — 52,000 DISPLACED"
+  - "GOLD RESERVES LOST — MARKETS CRASH"
+
+### Star Bonus Update
+- 2⭐ requires either 50%+ Earth HP OR 60%+ average resources.
+- 3⭐ requires target time AND no fully-lost resource AND 40%+ average resources.
+
+### UI Additions
+- Resource strip below top HUD: 4 compact bars with icons + values, flash red on drain, dim when lost.
+- Floating "-N COBALT" damage numbers pop from hit location.
+- Counter-deploy banner (pink chess-king icon).
+- Deploy toast shows "×1.5 cost" when lane-lock penalty triggers.
