@@ -9,7 +9,10 @@ import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api } from "@/src/api";
-import { playPanelVoice, stopVoice, detectSpeaker } from "@/src/game/voice";
+import {
+  playPanelVoice, stopVoice, detectSpeaker,
+  isVoiceMuted, setVoiceMuted, loadMutePref, subscribeMute,
+} from "@/src/game/voice";
 
 const SPEAKER_LABELS: Record<string, string> = {
   unit_one: "A.I. UNIT ONE", renn: "DR. RENN",
@@ -20,33 +23,15 @@ const SPEAKER_COLORS: Record<string, string> = {
   apollyon: colors.brandSecondary, narrator: colors.onSurfaceSecondary, queen: "#FF00FF",
 };
 
-function VoicePlayButton({ header, body }: { header: string; body: string }) {
-  const [loading, setLoading] = React.useState(false);
-  const [playing, setPlaying] = React.useState(false);
+function SpeakerChip({ header, body }: { header: string; body: string }) {
   const speaker = detectSpeaker(header, body);
   const color = SPEAKER_COLORS[speaker];
   const label = SPEAKER_LABELS[speaker];
-
-  const onPress = async () => {
-    if (loading) return;
-    if (playing) { stopVoice(); setPlaying(false); return; }
-    setLoading(true);
-    const ok = await playPanelVoice(header, body, speaker as any);
-    setLoading(false);
-    if (ok) {
-      setPlaying(true);
-      const dur = Math.max(2, (header.length + body.length) / 15) * 1000 + 500;
-      setTimeout(() => setPlaying(false), dur);
-    }
-  };
-
   return (
-    <Pressable onPress={onPress} style={[voiceStyles.btn, { borderColor: color }]} testID={`voice-${speaker}`}>
-      {loading ? <ActivityIndicator size="small" color={color} /> : (
-        <MaterialCommunityIcons name={playing ? "stop" : "volume-high"} size={14} color={color} />
-      )}
+    <View style={[voiceStyles.btn, { borderColor: color }]} testID={`voice-${speaker}`}>
+      <MaterialCommunityIcons name="account-voice" size={12} color={color} />
       <Text style={[voiceStyles.label, { color }]}>{label}</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -84,6 +69,7 @@ export default function InterludeScreen() {
 
   const [payload, setPayload] = useState<Payload | null>(null);
   const [idx, setIdx] = useState(0);
+  const [muted, setMuted] = useState<boolean>(isVoiceMuted());
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.9)).current;
   const pageSfx = useAudioPlayer(PAGE_SFX);
@@ -161,6 +147,34 @@ export default function InterludeScreen() {
     }
   }, [idx, payload, fadeAnim, scaleAnim, pageSfx, bossSfx]);
 
+  // Load persisted mute + subscribe
+  useEffect(() => {
+    let alive = true;
+    loadMutePref().then((m) => { if (alive) setMuted(m); });
+    const unsub = subscribeMute((m) => { if (alive) setMuted(m); });
+    return () => { alive = false; unsub(); };
+  }, []);
+
+  // Auto-play voice on every panel change (respects mute)
+  useEffect(() => {
+    if (!payload) return;
+    const p = payload.panels[idx];
+    if (!p) return;
+    stopVoice();
+    playPanelVoice(p.header, p.body).catch(() => {});
+    return () => { stopVoice(); };
+  }, [payload, idx]);
+
+  const toggleMute = async () => {
+    try { Haptics.selectionAsync().catch(() => {}); } catch {}
+    const next = !muted;
+    await setVoiceMuted(next);
+    if (!next && payload) {
+      const p = payload.panels[idx];
+      if (p) playPanelVoice(p.header, p.body).catch(() => {});
+    }
+  };
+
   if (!payload) return <View style={styles.loader}><ActivityIndicator color={colors.brandPrimary} /></View>;
 
   const panel = payload.panels[idx];
@@ -208,6 +222,13 @@ export default function InterludeScreen() {
             <Text style={styles.skipText}>SKIP</Text>
             <MaterialCommunityIcons name="chevron-double-right" size={12} color={colors.onSurfaceTertiary} />
           </Pressable>
+          <Pressable onPress={toggleMute} style={styles.muteBtn} testID="interlude-mute">
+            <MaterialCommunityIcons
+              name={muted ? "volume-off" : "volume-high"}
+              size={14}
+              color={muted ? colors.onSurfaceTertiary : payload.accent}
+            />
+          </Pressable>
         </View>
 
         {/* Panel */}
@@ -225,7 +246,7 @@ export default function InterludeScreen() {
               <Text style={styles.panelBadgeText}>{idx + 1} / {payload.panels.length}</Text>
             </View>
             <Text style={[styles.panelHeader, { color: payload.accent }]}>{panel.header}</Text>
-            <VoicePlayButton header={panel.header} body={panel.body} />
+            <SpeakerChip header={panel.header} body={panel.body} />
             <View style={styles.panelDivider} />
             {panel.body.split("\n").map((line, i) => (
               <Text key={i} style={styles.panelLine}>{line}</Text>
@@ -288,6 +309,11 @@ const styles = StyleSheet.create({
   skipText: {
     fontFamily: fonts.displayBold, color: colors.onSurfaceTertiary,
     fontSize: 10, letterSpacing: 1.5,
+  },
+  muteBtn: {
+    position: "absolute", top: spacing.md, left: spacing.md,
+    padding: 6, borderWidth: 1, borderColor: colors.border, borderRadius: 4,
+    backgroundColor: colors.surfaceSecondary,
   },
   body: { flex: 1, padding: spacing.lg, justifyContent: "center" },
   panel: {

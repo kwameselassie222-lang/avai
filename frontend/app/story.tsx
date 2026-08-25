@@ -9,7 +9,10 @@ import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api, V2Story, V2Config } from "@/src/api";
-import { playPanelVoice, stopVoice, detectSpeaker } from "@/src/game/voice";
+import {
+  playPanelVoice, stopVoice, detectSpeaker,
+  isVoiceMuted, setVoiceMuted, loadMutePref, subscribeMute,
+} from "@/src/game/voice";
 
 const SEEN_INTRO_PREFIX = "aliens_vai_seen_intro_";
 const PAGE_SFX = require("../assets/sfx/deploy.wav");
@@ -39,42 +42,17 @@ const SPEAKER_COLORS: Record<string, string> = {
   queen: "#FF00FF",
 };
 
-function VoicePlayButton({ header, body }: { header: string; body: string }) {
-  const [loading, setLoading] = React.useState(false);
-  const [playing, setPlaying] = React.useState(false);
+function SpeakerChip({ header, body }: { header: string; body: string }) {
   const speaker = detectSpeaker(header, body);
   const speakerLabel = SPEAKER_LABELS[speaker];
   const speakerColor = SPEAKER_COLORS[speaker];
-
-  const onPress = async () => {
-    if (loading) return;
-    if (playing) { stopVoice(); setPlaying(false); return; }
-    setLoading(true);
-    const ok = await playPanelVoice(header, body, speaker);
-    setLoading(false);
-    if (ok) {
-      setPlaying(true);
-      // Estimate playback duration by chars ~ 15 chars/second and reset state
-      const dur = Math.max(2, (header.length + body.length) / 15) * 1000 + 500;
-      setTimeout(() => setPlaying(false), dur);
-    }
-  };
-
   return (
-    <Pressable onPress={onPress} style={[voiceStyles.btn, { borderColor: speakerColor }]}
+    <View style={[voiceStyles.btn, { borderColor: speakerColor }]}
       testID={`voice-${speaker}`}
     >
-      {loading ? (
-        <ActivityIndicator size="small" color={speakerColor} />
-      ) : (
-        <MaterialCommunityIcons
-          name={playing ? "stop" : "volume-high"}
-          size={14}
-          color={speakerColor}
-        />
-      )}
+      <MaterialCommunityIcons name="account-voice" size={12} color={speakerColor} />
       <Text style={[voiceStyles.label, { color: speakerColor }]}>{speakerLabel}</Text>
-    </Pressable>
+    </View>
   );
 }
 
@@ -101,6 +79,7 @@ export default function StoryScreen() {
   const [config, setConfig] = useState<V2Config | null>(null);
   const [panelIdx, setPanelIdx] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [muted, setMuted] = useState<boolean>(isVoiceMuted());
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
@@ -149,6 +128,37 @@ export default function StoryScreen() {
   useEffect(() => {
     if (!loading && story) animateIn();
   }, [loading, story, panelIdx, animateIn]);
+
+  // Load persisted mute pref + subscribe to changes
+  useEffect(() => {
+    let alive = true;
+    loadMutePref().then((m) => { if (alive) setMuted(m); });
+    const unsub = subscribeMute((m) => { if (alive) setMuted(m); });
+    return () => { alive = false; unsub(); };
+  }, []);
+
+  // Auto-play voice on every panel change (respects mute)
+  useEffect(() => {
+    if (loading || !story) return;
+    const p = story.panels[panelIdx];
+    if (!p) return;
+    // Stop any prior; playPanelVoice internally skips if muted
+    stopVoice();
+    playPanelVoice(p.header, p.body).catch(() => {});
+    // Stop when unmounting or when panel changes next
+    return () => { stopVoice(); };
+  }, [loading, story, panelIdx]);
+
+  const toggleMute = async () => {
+    try { Haptics.selectionAsync().catch(() => {}); } catch {}
+    const next = !muted;
+    await setVoiceMuted(next);
+    // If un-muting mid-panel, replay current line
+    if (!next && story) {
+      const p = story.panels[panelIdx];
+      if (p) playPanelVoice(p.header, p.body).catch(() => {});
+    }
+  };
 
   const next = async () => {
     try { Haptics.selectionAsync().catch(() => {}); } catch {}
@@ -200,6 +210,13 @@ export default function StoryScreen() {
             <Text style={styles.locText}>{story.location}</Text>
           </View>
           <Text style={styles.timeText}>{story.time_stamp}</Text>
+          <Pressable onPress={toggleMute} style={styles.muteBtn} testID="story-mute">
+            <MaterialCommunityIcons
+              name={muted ? "volume-off" : "volume-high"}
+              size={16}
+              color={muted ? colors.onSurfaceTertiary : colors.brandPrimary}
+            />
+          </Pressable>
           <Pressable onPress={skip} style={styles.skipBtn} testID="story-skip">
             <Text style={styles.skipText}>SKIP</Text>
             <MaterialCommunityIcons name="chevron-double-right" size={14} color={colors.onSurfaceTertiary} />
@@ -264,7 +281,7 @@ export default function StoryScreen() {
                 <Text style={styles.panelBadgeText}>{panelIdx + 1}/{totalPanels}</Text>
               </View>
               <Text style={styles.panelHeader}>{panel.header}</Text>
-              <VoicePlayButton header={panel.header} body={panel.body} />
+              <SpeakerChip header={panel.header} body={panel.body} />
             </View>
             {panel.body.split("\n").map((line, i) => (
               <Text key={i} style={[
@@ -370,6 +387,10 @@ const styles = StyleSheet.create({
   skipBtn: {
     flexDirection: "row", alignItems: "center", gap: 2,
     paddingHorizontal: 6, paddingVertical: 4,
+  },
+  muteBtn: {
+    padding: 6, borderWidth: 1, borderColor: colors.border, borderRadius: 4,
+    backgroundColor: colors.surfaceSecondary,
   },
   skipText: {
     fontFamily: fonts.displayBold, color: colors.onSurfaceTertiary,

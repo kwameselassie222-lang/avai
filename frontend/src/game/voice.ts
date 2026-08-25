@@ -1,10 +1,12 @@
 import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "@/src/api";
 
 // Backend base URL — derives absolute URL for expo-audio
 const API_BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
+const MUTE_KEY = "aliens_vai_voice_muted";
 
-type Speaker = "unit_one" | "renn" | "apollyon" | "narrator" | "queen";
+export type Speaker = "unit_one" | "renn" | "apollyon" | "narrator" | "queen";
 
 /**
  * Heuristic speaker detection based on panel body / header text.
@@ -26,9 +28,13 @@ export function detectSpeaker(header: string, body: string): Speaker {
   return "narrator";
 }
 
-// Module-level player — replaces its source when a new panel plays
+// Module-level player + mute state
 let voicePlayer: ReturnType<typeof createAudioPlayer> | null = null;
 let audioModeSet = false;
+let voiceMuted = false;
+let muteLoaded = false;
+type MuteListener = (muted: boolean) => void;
+const muteListeners: Set<MuteListener> = new Set();
 
 async function ensureMode() {
   if (audioModeSet) return;
@@ -38,20 +44,56 @@ async function ensureMode() {
   } catch {}
 }
 
+/** Load persisted mute preference. Call at app start (or before first play). */
+export async function loadMutePref(): Promise<boolean> {
+  if (muteLoaded) return voiceMuted;
+  try {
+    const raw = await AsyncStorage.getItem(MUTE_KEY);
+    voiceMuted = raw === "1";
+  } catch {
+    voiceMuted = false;
+  }
+  muteLoaded = true;
+  return voiceMuted;
+}
+
+/** Current mute state (synchronous). Call loadMutePref() at app start to hydrate. */
+export function isVoiceMuted(): boolean {
+  return voiceMuted;
+}
+
+/** Toggle or set mute — stops current playback if muting. Persists to storage. */
+export async function setVoiceMuted(m: boolean): Promise<void> {
+  voiceMuted = m;
+  muteLoaded = true;
+  try { await AsyncStorage.setItem(MUTE_KEY, m ? "1" : "0"); } catch {}
+  if (m) stopVoice();
+  muteListeners.forEach((fn) => fn(m));
+}
+
+export function subscribeMute(fn: MuteListener): () => void {
+  muteListeners.add(fn);
+  return () => { muteListeners.delete(fn); };
+}
+
 export function stopVoice() {
   try { voicePlayer?.pause(); } catch {}
 }
 
 /**
  * Fetch TTS URL from backend, download-cache-free playback via streaming.
- * Returns true if playback started, false on failure.
+ * Returns true if playback started, false on failure or muted.
  */
 export async function playPanelVoice(header: string, body: string, forceSpeaker?: Speaker): Promise<boolean> {
   try {
+    if (!muteLoaded) await loadMutePref();
+    if (voiceMuted) return false;
     await ensureMode();
     const speaker = forceSpeaker || detectSpeaker(header, body);
     const line = `${header}. ${body}`;
     const res = await api.v2TTSCreate(line, speaker);
+    // Respect a race: user may have muted while awaiting network
+    if (voiceMuted) return false;
     const absoluteUrl = res.url.startsWith("http") ? res.url : `${API_BASE}${res.url}`;
     // Stop previous
     stopVoice();

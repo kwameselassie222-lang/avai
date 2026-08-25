@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { useAppFonts } from "@/src/hooks/use-app-fonts";
+import { loadMutePref } from "@/src/game/voice";
 
 // Disable logbox errors etc so that users can see the app
 // and agent works as expected.
@@ -27,6 +28,8 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready) {
       SplashScreen.hideAsync();
+      // Warm up voice mute preference so first story panel reads the correct state
+      loadMutePref().catch(() => {});
     }
   }, [ready]);
 

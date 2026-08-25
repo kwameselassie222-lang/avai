@@ -575,3 +575,24 @@ Classic Contra/Metroid mechanic. Hive Queen has a periodic vulnerable state:
 - Big red **RESET ALL PROGRESS** button with confirmation dialog.
 - On confirm: wipes `storage.clear()` (player_id + codename), navigates back to boot screen.
 - Player starts from scratch — new codename, World 1 L1, no unlocks, no stars.
+
+## Iteration 16 (Auto-Play Voiceovers + Global Mute) — 2026-06
+
+### Voice Auto-Play
+- Story and Interlude panels now play the character voiceover automatically on mount.
+- Panel-change effect: stops any previous audio, then fires `playPanelVoice(header, body)` immediately.
+- Removed the old tap-to-play chip. Replaced with a passive `SpeakerChip` showing just the speaker name + color.
+
+### Global Mute Toggle
+- New mute button in the top bar of both `story.tsx` and `interlude.tsx`.
+- Icon toggles between `volume-high` (unmuted) and `volume-off` (muted).
+- State persists to AsyncStorage under key `aliens_vai_voice_muted`.
+- Auto-play respects mute; audio requests are skipped entirely when muted (saves TTS calls).
+- Un-muting mid-panel replays the current panel's line.
+- Mute preference is warmed up in `_layout.tsx` at cold-boot so the first story panel reads the right state.
+
+### API Surface (voice.ts)
+- `playPanelVoice(header, body)` — auto skips if muted, no throw.
+- `stopVoice()` — pauses current audio.
+- `loadMutePref()` / `isVoiceMuted()` / `setVoiceMuted(bool)` — hydrated mute preference API.
+- `subscribeMute(cb)` — components subscribe for instant UI sync when toggled.
