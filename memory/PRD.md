@@ -510,3 +510,36 @@ When aliens hit Earth, they don't just chip HP — they eat *the world's resourc
 - Floating "-N COBALT" damage numbers pop from hit location.
 - Counter-deploy banner (pink chess-king icon).
 - Deploy toast shows "×1.5 cost" when lane-lock penalty triggers.
+
+## Iteration 14 (Solvable Puzzles + Combat Tuning) — 2026-06
+Response to feedback: "make every level figure-out-able through logic, and slow the alien pressure."
+
+### Energy Tuning (Big buff)
+- ENERGY_REGEN_PER_SEC: 0.4 → **0.9** (over 2× faster).
+- ATTACK_ENERGY_DRAIN: 0.22 → **0.08** per shot (much lighter tax).
+- energy_max: 10 → **12**; starting energy +3 bonus.
+- Global HP mult: 1.35 → 1.15. ATK mult 1.25 → 1.10. Speed mult 1.12 → 1.05.
+- Alien Commander counter cooldown: 8s → **12s**; delay: 3.5-5.5s → 5-7.5s (more breathing room).
+
+### Tactical Brief (new pre-battle puzzle screen)
+Auto-opens the moment battle loads and pauses the sim. Also accessible mid-battle via 💡 button in top HUD.
+Shows three sections generated deterministically from level config:
+1. **HOSTILE ROSTER** — each alien type this level features with count, category tag, and which resource they drain.
+2. **COUNTER STRATEGY** — for each alien category, shows the exact unlocked robot(s) that hard-counter it. If none unlocked, shows "NO COUNTER UNLOCKED — SURVIVE" so player knows what to grind for.
+3. **COMMANDER TIPS** — dynamic strategic hints based on level:
+   - Which lane sees the most attacks ("Most attacks hit the LEFT lane — fortify it first")
+   - Boss timing warning if applicable
+   - Category-specific tactics ("Snipers > swarms", "Scouts strip armor", "Tanks eat spitter volleys", "Flyers ignore lanes")
+   - Surge warnings for L7+ ("save 5+ energy for a spread response")
+
+### Deploy Card Upgrade
+- Each robot card now shows a small category chip (LIG/HEA/RAN/SUP).
+- When a robot is selected, a tiny "vs SWARM·AIR" hint appears showing which enemy categories it hard-counters in this level.
+- Cards that counter something in this level get their chip highlighted cyan; irrelevant picks stay grey — visual filter helps the player pick right.
+
+### Result
+Every level is now literally a solvable puzzle:
+1. Player reads the brief → sees what's coming.
+2. Player picks robots whose category chip is cyan-highlighted (matches counters).
+3. Player deploys them in the hot lane the tips highlighted.
+4. Energy regen is fast enough that a smart, patient player can always respond.

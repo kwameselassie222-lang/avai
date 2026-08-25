@@ -71,15 +71,15 @@ const ALIEN_RESOURCE: Record<string, ResourceKind> = {
   hive_queen: "iron", // boss hits iron; core hit also drains random
 };
 
-const ATTACK_ENERGY_DRAIN = 0.22;      // energy drained per player-robot shot
+const ATTACK_ENERGY_DRAIN = 0.08;      // energy drained per player-robot shot (was 0.22)
 const CORE_HIT_RESOURCE_MIN = 3;
 const CORE_HIT_RESOURCE_MAX = 8;
 const UNIT_HIT_RESOURCE_MIN = 1;
 const UNIT_HIT_RESOURCE_MAX = 3;
 const REDEPLOY_PENALTY_WINDOW = 3.0;   // sec — same robot same lane costs +50%
-const COUNTER_COOLDOWN = 8.0;          // alien commander responds at most every 8s
-const COUNTER_DELAY_MIN = 3.5;
-const COUNTER_DELAY_MAX = 5.5;
+const COUNTER_COOLDOWN = 12.0;         // alien commander responds at most every 12s (was 8)
+const COUNTER_DELAY_MIN = 5.0;
+const COUNTER_DELAY_MAX = 7.5;
 
 export type Particle = {
   id: string;
@@ -144,12 +144,12 @@ export type BattleState = {
   lane_deploy_time: Record<string, number>; // key = `${robotId}:${lane}` -> time
 };
 
-const ENERGY_REGEN_PER_SEC = 0.4;
+const ENERGY_REGEN_PER_SEC = 0.9;      // was 0.4 — much faster reload
 const ABILITY_CHARGE_PER_SEC = 1 / 30; // full in 30s
-// ==== GLOBAL DIFFICULTY BUMP (applies to all difficulties) ====
-const GLOBAL_HP_MULT = 1.35;
-const GLOBAL_ATK_MULT = 1.25;
-const GLOBAL_SPEED_MULT = 1.12;
+// ==== GLOBAL DIFFICULTY BUMP (softer so the player has room to think) ====
+const GLOBAL_HP_MULT = 1.15;
+const GLOBAL_ATK_MULT = 1.10;
+const GLOBAL_SPEED_MULT = 1.05;
 const ROBOT_COLORS: Record<string, string> = {
   scout: "#00E5FF", guardian: "#B57BFF", drone: "#00FF66", striker: "#FFB020",
   sniper: "#FF7A00", tank: "#B0B4C0", titan: "#FF3366",
@@ -215,8 +215,8 @@ export function initBattle(
     playing: true,
     outcome: null,
     time: 0,
-    energy: level.energy_start,
-    energy_max: 10,
+    energy: level.energy_start + 3,
+    energy_max: 12,
     earth_hp: 500,
     earth_max_hp: 500,
     alien_hp: level.core_hp,
@@ -743,3 +743,122 @@ export function computeStars(state: BattleState, level: V2Level): number {
   if (state.time <= level.target_time && !anyLost && avgRes > 40) stars = Math.max(stars, 3);
   return stars;
 }
+
+// ==== Tactical Briefing: how to beat each level ====
+// Returns a puzzle-style breakdown of what's coming and what counters it.
+export type LevelBrief = {
+  level_id: number;
+  level_name: string;
+  aliens: { id: string; name: string; category: string; count: number; drains: ResourceKind }[];
+  counters: { alien_cat: string; alien_label: string; robot_cats: string[]; robot_ids: string[] }[];
+  strategy_tips: string[];
+  boss?: { id: string; name: string };
+};
+
+const CAT_TO_ROBOT_IDS: Record<string, string[]> = {
+  light: ["scout", "drone"],
+  heavy: ["tank", "titan"],
+  ranged: ["sniper", "striker"],
+  support: ["guardian"],
+};
+
+const ALIEN_CAT_LABEL: Record<string, string> = {
+  swarm: "SWARM",
+  armored: "ARMORED",
+  ranged: "RANGED",
+  air: "AIRBORNE",
+  boss: "BOSS",
+};
+
+const COUNTER_MAP: Record<string, string[]> = {
+  swarm: ["ranged"],       // sniper/striker melt swarms
+  armored: ["light"],      // light bots strip armor
+  ranged: ["heavy"],       // heavies soak spitter shots
+  air: ["ranged"],         // only ranged can hit flyers
+  boss: ["heavy", "ranged"],
+};
+
+export function getRobotCategory(robotId: string): string | undefined {
+  return ROBOT_CATEGORY[robotId];
+}
+export function getAlienCategory(alienId: string): string | undefined {
+  return ALIEN_CATEGORY[alienId];
+}
+export function getAlienCatLabel(cat: string): string {
+  return ALIEN_CAT_LABEL[cat] || cat.toUpperCase();
+}
+
+export function buildLevelBrief(
+  level: V2Level,
+  aliens: V2Alien[],
+  robots: V2Robot[],
+  unlocked_ids: string[],
+): LevelBrief {
+  // Merge waves + boss
+  const counts: Record<string, number> = {};
+  for (const w of level.waves) counts[w.type] = (counts[w.type] || 0) + 1;
+  if (level.boss) counts[level.boss] = (counts[level.boss] || 0) + 1;
+  const aMap: Record<string, V2Alien> = {};
+  aliens.forEach((a) => (aMap[a.id] = a));
+
+  const alienRoster = Object.entries(counts).map(([id, count]) => {
+    const a = aMap[id];
+    const category = ALIEN_CATEGORY[id] || "swarm";
+    return {
+      id,
+      name: a?.name || id.toUpperCase(),
+      category,
+      count,
+      drains: ALIEN_RESOURCE[id] || "iron",
+    };
+  });
+
+  // Unique alien categories
+  const uniqCats = Array.from(new Set(alienRoster.map((x) => x.category)));
+  const counters = uniqCats.map((cat) => {
+    const robot_cats = COUNTER_MAP[cat] || ["ranged"];
+    const robot_ids = robot_cats
+      .flatMap((rc) => CAT_TO_ROBOT_IDS[rc] || [])
+      .filter((rid) => unlocked_ids.includes(rid) && robots.some((r) => r.id === rid));
+    return {
+      alien_cat: cat,
+      alien_label: ALIEN_CAT_LABEL[cat] || cat.toUpperCase(),
+      robot_cats,
+      robot_ids,
+    };
+  });
+
+  const strategy_tips: string[] = [];
+  const laneCount: Record<string, number> = { left: 0, center: 0, right: 0 };
+  for (const w of level.waves) laneCount[w.lane]++;
+  const hotLane = Object.entries(laneCount).sort((a, b) => b[1] - a[1])[0][0];
+  strategy_tips.push(`Most attacks hit the ${hotLane.toUpperCase()} lane — fortify it first.`);
+  if (level.boss) {
+    strategy_tips.push(`Boss appears late. Save ability charge and heavy units for it.`);
+  }
+  if (uniqCats.includes("swarm")) {
+    strategy_tips.push("Snipers > swarms. Don't send tanks to fight crawlers.");
+  }
+  if (uniqCats.includes("armored")) {
+    strategy_tips.push("Scouts and drones chew through armored brutes fast.");
+  }
+  if (uniqCats.includes("ranged")) {
+    strategy_tips.push("Spitters shoot from far — tanks/titans absorb their volleys.");
+  }
+  if (uniqCats.includes("air")) {
+    strategy_tips.push("Flyers ignore lanes. Keep at least one ranged bot per lane.");
+  }
+  if ((level.surges || []).length > 0) {
+    strategy_tips.push("Triple-lane SURGES incoming — save 5+ energy for a spread response.");
+  }
+
+  return {
+    level_id: level.id,
+    level_name: level.name,
+    aliens: alienRoster,
+    counters,
+    strategy_tips,
+    boss: level.boss ? { id: level.boss, name: aMap[level.boss]?.name || level.boss } : undefined,
+  };
+}
+

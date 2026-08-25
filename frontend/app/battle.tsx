@@ -10,6 +10,7 @@ import { api, storage, V2Config, V2Campaign, V2Level } from "@/src/api";
 import {
   BattleState, initBattle, tick, deployRobot, useAbility as applyAbility,
   computeStars, Lane, drainSounds, SoundEvent,
+  buildLevelBrief, LevelBrief, getRobotCategory,
 } from "@/src/game/engine";
 
 const LANES: Lane[] = ["left", "center", "right"];
@@ -49,6 +50,8 @@ export default function BattleScreen() {
   const stateRef = useRef<BattleState | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<string | null>(null);
   const [rewardShown, setRewardShown] = useState(false);
+  const [brief, setBrief] = useState<LevelBrief | null>(null);
+  const [briefOpen, setBriefOpen] = useState(false);
   const [result, setResult] = useState<{
     victory: boolean; stars: number; parts: number; unlocked: string | null;
   } | null>(null);
@@ -148,6 +151,11 @@ export default function BattleScreen() {
         st.earth_hp = st.earth_max_hp;
       }
       stateRef.current = st;
+      // Build the tactical brief so player can figure out the puzzle
+      const b = buildLevelBrief(L, c.aliens, c.robots, deck);
+      setBrief(b);
+      setBriefOpen(true);
+      paused.current = true;
       setReady(true);
     })();
     return () => {
@@ -283,6 +291,9 @@ export default function BattleScreen() {
             <View style={[styles.hpFill, { width: `${(state.alien_hp / state.alien_max_hp) * 100}%`, backgroundColor: colors.brandSecondary }]} />
           </View>
         </View>
+        <Pressable onPress={() => { paused.current = true; setBriefOpen(true); }} style={styles.tipBtn} testID="btn-tactical-brief">
+          <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={colors.warning} />
+        </Pressable>
         <Text style={styles.timer}>{Math.floor(state.time)}s</Text>
       </View>
 
@@ -564,6 +575,11 @@ export default function BattleScreen() {
             if (!r) return null;
             const canAfford = state.energy >= r.cost;
             const selected = selectedRobot === rid;
+            const cat = getRobotCategory(rid);
+            // Find what this robot best counters (from the brief)
+            const bestCounters = brief?.counters
+              .filter((c) => c.robot_cats.includes(cat || ""))
+              .map((c) => c.alien_label) || [];
             return (
               <Pressable
                 key={rid}
@@ -576,13 +592,121 @@ export default function BattleScreen() {
                 testID={`card-${rid}`}
               >
                 <View style={styles.cardCost}><Text style={styles.costText}>{r.cost}⚡</Text></View>
+                {cat && (
+                  <View style={[styles.catChip, {
+                    backgroundColor: bestCounters.length > 0 ? "rgba(0,229,255,0.18)" : "rgba(255,255,255,0.06)",
+                    borderColor: bestCounters.length > 0 ? colors.brandPrimary : colors.border,
+                  }]}>
+                    <Text style={[styles.catChipText, {
+                      color: bestCounters.length > 0 ? colors.brandPrimary : colors.onSurfaceSecondary,
+                    }]}>{cat.slice(0, 3).toUpperCase()}</Text>
+                  </View>
+                )}
                 <MaterialCommunityIcons name={r.kind === "air" ? "quadcopter" : "robot"} size={22} color={selected ? colors.brandPrimary : colors.onSurface} />
                 <Text style={[styles.cardName, { color: selected ? colors.brandPrimary : colors.onSurface }]}>{r.name.split(" ")[0]}</Text>
+                {selected && bestCounters.length > 0 && (
+                  <Text style={styles.counterHint}>vs {bestCounters.join("·")}</Text>
+                )}
               </Pressable>
             );
           })}
         </View>
       </View>
+
+      {/* Tactical Briefing modal — puzzle-style level breakdown */}
+      {brief && briefOpen && (
+        <Modal transparent animationType="fade" visible>
+          <View style={styles.overlay}>
+            <View style={[styles.overlayCard, { borderColor: colors.brandPrimary, maxWidth: 380 }]}>
+              <View style={styles.overlayHeader}>
+                <MaterialCommunityIcons name="lightbulb-on" size={36} color={colors.warning} />
+                <Text style={[styles.overlayTitle, { color: colors.warning, fontSize: fontSize.xl, letterSpacing: 4 }]}>
+                  TACTICAL BRIEF
+                </Text>
+              </View>
+              <Text style={styles.overlaySub}>{brief.level_name.toUpperCase()}</Text>
+
+              {/* Hostile roster */}
+              <View style={styles.briefSection}>
+                <Text style={styles.briefSectionLabel}>◆ HOSTILE ROSTER</Text>
+                {brief.aliens.map((a) => {
+                  const meta = RESOURCE_META.find((r) => r.key === a.drains);
+                  return (
+                    <View key={a.id} style={styles.briefRow}>
+                      <MaterialCommunityIcons
+                        name={a.category === "air" ? "quadcopter" : a.category === "boss" ? "spider" : "alien"}
+                        size={14}
+                        color={colors.brandSecondary}
+                      />
+                      <Text style={styles.briefRowName}>{a.name}</Text>
+                      <View style={styles.briefCatTag}>
+                        <Text style={styles.briefCatText}>{a.category.toUpperCase()}</Text>
+                      </View>
+                      <Text style={styles.briefCount}>×{a.count}</Text>
+                      {meta && (
+                        <View style={[styles.briefResChip, { borderColor: meta.color }]}>
+                          <MaterialCommunityIcons name={meta.icon} size={9} color={meta.color} />
+                          <Text style={[styles.briefResText, { color: meta.color }]}>{meta.label}</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Counter matrix */}
+              <View style={styles.briefSection}>
+                <Text style={styles.briefSectionLabel}>◆ COUNTER STRATEGY</Text>
+                {brief.counters.map((c) => (
+                  <View key={c.alien_cat} style={styles.briefCounterRow}>
+                    <View style={styles.briefCatTagRed}>
+                      <Text style={styles.briefCatText}>{c.alien_label}</Text>
+                    </View>
+                    <MaterialCommunityIcons name="arrow-right-thick" size={12} color={colors.onSurfaceSecondary} />
+                    {c.robot_ids.length > 0 ? (
+                      c.robot_ids.map((rid) => {
+                        const r = config?.robots.find((x) => x.id === rid);
+                        return (
+                          <View key={rid} style={styles.briefBotChip}>
+                            <MaterialCommunityIcons name="robot" size={10} color={colors.brandPrimary} />
+                            <Text style={styles.briefBotChipText}>{(r?.name || rid).split(" ")[0].toUpperCase()}</Text>
+                          </View>
+                        );
+                      })
+                    ) : (
+                      <Text style={styles.briefNoCounter}>NO COUNTER UNLOCKED — SURVIVE</Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+
+              {/* Strategy tips */}
+              <View style={styles.briefSection}>
+                <Text style={styles.briefSectionLabel}>◆ COMMANDER TIPS</Text>
+                {brief.strategy_tips.map((t, i) => (
+                  <View key={i} style={styles.briefTip}>
+                    <Text style={styles.briefTipBullet}>▸</Text>
+                    <Text style={styles.briefTipText}>{t}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <Pressable
+                onPress={() => { setBriefOpen(false); paused.current = false; }}
+                style={[styles.actionBtn, {
+                  borderColor: colors.brandPrimary,
+                  backgroundColor: "rgba(0,229,255,0.15)",
+                  marginTop: spacing.md, width: "100%",
+                }]}
+                testID="btn-brief-start"
+              >
+                <MaterialCommunityIcons name="sword-cross" size={16} color={colors.brandPrimary} />
+                <Text style={[styles.actionText, { color: colors.brandPrimary }]}>ENGAGE</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* Victory / Defeat overlay */}
       {result && level && (
@@ -949,5 +1073,85 @@ const styles = StyleSheet.create({
   resourceBarFill: { height: 4 },
   resourceVal: {
     fontFamily: fonts.displayBold, fontSize: 9, letterSpacing: 0.5, minWidth: 22, textAlign: "right",
+  },
+
+  // Tactical brief modal
+  briefSection: { width: "100%", marginBottom: spacing.sm },
+  briefSectionLabel: {
+    fontFamily: fonts.displayBold, color: colors.warning,
+    fontSize: 10, letterSpacing: 2, marginBottom: 6,
+  },
+  briefRow: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingVertical: 4, paddingHorizontal: 6,
+    borderRadius: 4, backgroundColor: "rgba(255,51,102,0.06)",
+    marginBottom: 3,
+  },
+  briefRowName: {
+    fontFamily: fonts.displayBold, color: colors.onSurface, fontSize: 11, letterSpacing: 1, flex: 1,
+  },
+  briefCatTag: {
+    borderWidth: 1, borderColor: colors.brandSecondary,
+    paddingHorizontal: 4, paddingVertical: 1, borderRadius: 2,
+  },
+  briefCatTagRed: {
+    borderWidth: 1, borderColor: colors.brandSecondary,
+    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 2,
+    backgroundColor: "rgba(255,51,102,0.14)",
+  },
+  briefCatText: {
+    fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: 8, letterSpacing: 1,
+  },
+  briefCount: {
+    fontFamily: fonts.displayBold, color: colors.onSurfaceSecondary, fontSize: 10, letterSpacing: 1, minWidth: 20, textAlign: "right",
+  },
+  briefResChip: {
+    flexDirection: "row", alignItems: "center", gap: 2,
+    borderWidth: 1, paddingHorizontal: 3, paddingVertical: 1, borderRadius: 2,
+  },
+  briefResText: { fontFamily: fonts.displayBold, fontSize: 8, letterSpacing: 0.5 },
+  briefCounterRow: {
+    flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap",
+    paddingVertical: 4, marginBottom: 3,
+  },
+  briefBotChip: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    borderWidth: 1, borderColor: colors.brandPrimary,
+    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 3,
+    backgroundColor: "rgba(0,229,255,0.14)",
+  },
+  briefBotChipText: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary, fontSize: 9, letterSpacing: 1,
+  },
+  briefNoCounter: {
+    fontFamily: fonts.displayBold, color: colors.warning, fontSize: 9, letterSpacing: 1,
+  },
+  briefTip: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6,
+    paddingVertical: 3,
+  },
+  briefTipBullet: { color: colors.brandPrimary, fontSize: 12, marginTop: 1 },
+  briefTipText: {
+    fontFamily: fonts.body, color: colors.onSurface, fontSize: 11,
+    lineHeight: 15, flex: 1,
+  },
+
+  // Tip button
+  tipBtn: {
+    padding: 6, borderWidth: 1, borderColor: colors.warning, borderRadius: 4,
+    backgroundColor: "rgba(255,176,32,0.12)",
+  },
+
+  // Deploy card additions
+  catChip: {
+    position: "absolute", top: 2, left: 2,
+    borderWidth: 1, paddingHorizontal: 3, paddingVertical: 1, borderRadius: 2,
+  },
+  catChipText: {
+    fontFamily: fonts.displayBold, fontSize: 7, letterSpacing: 0.5,
+  },
+  counterHint: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary,
+    fontSize: 7, letterSpacing: 0.5, marginTop: 1, textAlign: "center",
   },
 });
