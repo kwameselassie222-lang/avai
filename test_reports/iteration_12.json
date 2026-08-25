@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 12 — Voice-Over TTS feature validated end-to-end. Backend contract: 11/11 pytest cases passed (all 5 speakers generate 200 with url/speaker JSON, GET returns audio/mpeg with valid MP3 magic bytes, invalid speaker=400, empty/whitespace text=400, cache hit second POST ~30ms). Frontend: codename TTSTEST activation → /command, story panel1 renders NARRATOR chip, tap fires POST /api/v2/tts/create and GET .mp3 (both 200), chip icon changes from volume to stop indicating playing state. Speaker auto-detection correct on all target panels: reveal/world1 p1=queen, p2=narrator, p3=apollyon; chapter/1 p3=renn. Story SKIP → /battle?level=1 and Interlude BEGIN OPERATION → /story?level=1 regressions pass. NOTE: Browser autoplay policy fires a benign 'play() failed because the user didn\\'t interact' pageerror on subsequent goto navigations where the tap gesture is not carried over — this is Chrome autoplay policy and does not affect real device / Expo Go playback, matches the agent-to-agent note in the request.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_tts_iteration12.py",
+    "/app/test_reports/pytest/iteration12_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "voice.ts uses expo-audio createAudioPlayer (correct, not deprecated expo-av) — good.",
+    "Cache key uses sha256(text|voice|speed|model|fmt)[:24]; matches spec, deterministic, second POST returns instantly.",
+    "TTS endpoint properly excludes MongoDB _id (no DB writes at all — pure file cache under /tmp/tts_cache).",
+    "Consider: MP3 files under /tmp are ephemeral in K8s — if the pod restarts, all cached files vanish; acceptable for now."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_tts_iteration12.py (new — 11 pytest cases)"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "seed_data_creation": "Created player codename 'TTSTEST' via UI. TTS cache files land in /tmp/tts_cache (transient).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "TTS endpoints POST /api/v2/tts/create + GET /api/v2/tts/{key}.mp3 confirmed live and cached. Speaker map: unit_one/renn/apollyon/narrator/queen. Frontend voice chips have testID voice-{speaker}. detectSpeaker() heuristics validated on production panels (SILENCE→queen, THE VOICE→apollyon, DR. KAYA RENN→renn). Browser autoplay blocks actual audio on cross-navigation until user gesture — expected and OK per feature note.",
+  "rca_of_issue": "N/A — no issues found."
+}

@@ -737,6 +737,13 @@ export const api = {
   async v2StoryReveal(revealId: string): Promise<V2Reveal> {
     return j<V2Reveal>(await fetch(`${API}/v2/story/reveal/${revealId}`));
   },
+  async v2TTSCreate(text: string, speaker: string): Promise<{ url: string; speaker: string }> {
+    return j<{ url: string; speaker: string }>(await fetch(`${API}/v2/tts/create`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, speaker }),
+    }));
+  },
 };
 
 // ==== V2 Story types ====

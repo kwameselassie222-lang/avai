@@ -9,6 +9,7 @@ import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api, V2Story, V2Config } from "@/src/api";
+import { playPanelVoice, stopVoice, detectSpeaker } from "@/src/game/voice";
 
 const SEEN_INTRO_PREFIX = "aliens_vai_seen_intro_";
 const PAGE_SFX = require("../assets/sfx/deploy.wav");
@@ -22,6 +23,71 @@ const ALIEN_LABELS: Record<string, string> = {
   crawler: "CRAWLER", spitter: "SPITTER", brute: "BRUTE",
   flyer: "FLYER", hive_queen: "HIVE QUEEN",
 };
+
+const SPEAKER_LABELS: Record<string, string> = {
+  unit_one: "A.I. UNIT ONE",
+  renn: "DR. RENN",
+  apollyon: "APOLLYON",
+  narrator: "NARRATOR",
+  queen: "HIVE QUEEN",
+};
+const SPEAKER_COLORS: Record<string, string> = {
+  unit_one: colors.brandPrimary,
+  renn: "#00FF66",
+  apollyon: colors.brandSecondary,
+  narrator: colors.onSurfaceSecondary,
+  queen: "#FF00FF",
+};
+
+function VoicePlayButton({ header, body }: { header: string; body: string }) {
+  const [loading, setLoading] = React.useState(false);
+  const [playing, setPlaying] = React.useState(false);
+  const speaker = detectSpeaker(header, body);
+  const speakerLabel = SPEAKER_LABELS[speaker];
+  const speakerColor = SPEAKER_COLORS[speaker];
+
+  const onPress = async () => {
+    if (loading) return;
+    if (playing) { stopVoice(); setPlaying(false); return; }
+    setLoading(true);
+    const ok = await playPanelVoice(header, body, speaker);
+    setLoading(false);
+    if (ok) {
+      setPlaying(true);
+      // Estimate playback duration by chars ~ 15 chars/second and reset state
+      const dur = Math.max(2, (header.length + body.length) / 15) * 1000 + 500;
+      setTimeout(() => setPlaying(false), dur);
+    }
+  };
+
+  return (
+    <Pressable onPress={onPress} style={[voiceStyles.btn, { borderColor: speakerColor }]}
+      testID={`voice-${speaker}`}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={speakerColor} />
+      ) : (
+        <MaterialCommunityIcons
+          name={playing ? "stop" : "volume-high"}
+          size={14}
+          color={speakerColor}
+        />
+      )}
+      <Text style={[voiceStyles.label, { color: speakerColor }]}>{speakerLabel}</Text>
+    </Pressable>
+  );
+}
+
+const voiceStyles = StyleSheet.create({
+  btn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3,
+    borderRadius: 4, minWidth: 82, justifyContent: "center",
+  },
+  label: {
+    fontFamily: fonts.displayBold, fontSize: 9, letterSpacing: 1,
+  },
+});
 
 export default function StoryScreen() {
   const router = useRouter();
@@ -87,6 +153,7 @@ export default function StoryScreen() {
   const next = async () => {
     try { Haptics.selectionAsync().catch(() => {}); } catch {}
     try { pageSfx.volume = 0.35; pageSfx.seekTo(0); pageSfx.play(); } catch {}
+    stopVoice();
     if (!story) return;
     if (panelIdx < story.panels.length - 1) {
       setPanelIdx((n) => n + 1);
@@ -98,6 +165,7 @@ export default function StoryScreen() {
 
   const skip = async () => {
     try { Haptics.selectionAsync().catch(() => {}); } catch {}
+    stopVoice();
     await AsyncStorage.setItem(`${SEEN_INTRO_PREFIX}${levelId}`, "1");
     router.replace(`/battle?level=${levelId}${difficulty === "veteran" ? "&difficulty=veteran" : ""}`);
   };
@@ -196,6 +264,7 @@ export default function StoryScreen() {
                 <Text style={styles.panelBadgeText}>{panelIdx + 1}/{totalPanels}</Text>
               </View>
               <Text style={styles.panelHeader}>{panel.header}</Text>
+              <VoicePlayButton header={panel.header} body={panel.body} />
             </View>
             {panel.body.split("\n").map((line, i) => (
               <Text key={i} style={[

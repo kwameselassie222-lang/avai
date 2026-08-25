@@ -1,9 +1,12 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Response
+from fastapi import Body
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import random
+import hashlib
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -3172,6 +3175,75 @@ V2_EPILOGUE = {
 @api_router.get("/v2/story/epilogue")
 async def v2_story_epilogue():
     return V2_EPILOGUE
+
+
+# ==== TTS (Emergent OpenAI) ====
+TTS_CACHE_DIR = Path("/tmp/tts_cache")
+TTS_CACHE_DIR.mkdir(exist_ok=True)
+
+# Speaker → (voice, speed)
+TTS_SPEAKERS = {
+    "unit_one":  ("onyx",    1.0),   # deep, authoritative AI
+    "renn":      ("coral",   1.05),  # warm, human
+    "apollyon":  ("ash",     0.88),  # cold, articulate, slower
+    "narrator":  ("echo",    1.0),   # calm narration
+    "queen":     ("shimmer", 0.92),  # alien, slightly slower
+}
+
+def _clean_for_tts(text: str) -> str:
+    text = re.sub(r"[◆⚠▮]+", "", text)                 # our custom bullets
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"`{1,3}[^`]*`{1,3}", "", text)
+    text = re.sub(r"[*_#>~|]", "", text)
+    text = re.sub(r"—", ", ", text)                    # em-dash breather
+    return re.sub(r"\s+", " ", text).strip()
+
+
+class V2TTSRequest(BaseModel):
+    text: str
+    speaker: str = "narrator"
+
+
+@api_router.post("/v2/tts/create")
+async def v2_tts_create(req: V2TTSRequest):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="LLM key missing")
+    if req.speaker not in TTS_SPEAKERS:
+        raise HTTPException(status_code=400, detail=f"unknown speaker {req.speaker}")
+    text = _clean_for_tts(req.text)
+    if not text:
+        raise HTTPException(status_code=400, detail="empty text after cleaning")
+    if len(text) > 500:
+        text = text[:500]
+    voice, speed = TTS_SPEAKERS[req.speaker]
+    fmt = "mp3"
+    key = hashlib.sha256(f"{text}|{voice}|{speed}|tts-1|{fmt}".encode()).hexdigest()[:24]
+    out_path = TTS_CACHE_DIR / f"{key}.{fmt}"
+    if not out_path.exists():
+        try:
+            from emergentintegrations.llm.openai import OpenAITextToSpeech
+            tts = OpenAITextToSpeech(api_key=EMERGENT_LLM_KEY)
+            audio_bytes = await tts.generate_speech(
+                text=text, model="tts-1", voice=voice, speed=speed, response_format=fmt,
+            )
+            out_path.write_bytes(audio_bytes)
+        except Exception as e:
+            logger.exception("tts generation failed")
+            raise HTTPException(status_code=500, detail=f"tts failed: {e}")
+    return {"url": f"/api/v2/tts/{key}.{fmt}", "speaker": req.speaker}
+
+
+@api_router.get("/v2/tts/{key}.{ext}")
+async def v2_tts_get(key: str, ext: str):
+    p = TTS_CACHE_DIR / f"{key}.{ext}"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="not found")
+    media = "audio/mpeg" if ext == "mp3" else "audio/wav"
+    return Response(
+        content=p.read_bytes(),
+        media_type=media,
+        headers={"Cache-Control": "public, max-age=31536000"},
+    )
 
 
 @api_router.get("/v2/story/reveal/world1")

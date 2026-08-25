@@ -430,3 +430,24 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
   - `GET /api/v2/story/reveal/{id}` — reveal cinematic (currently `world1`)
 - Updated `GET /api/v2/story/{level_id}` to include `chapter`, `previously`, `next_teaser` fields
 - Gemini system prompt updated for serious-sci-fi + Apollyon lore aware (references only from L7+)
+
+## Iteration 16 — Voice-Over TTS (June 2026)
+
+### Backend (Emergent OpenAI TTS)
+- New endpoints:
+  - `POST /api/v2/tts/create` — body: {text, speaker}. Cleans text (strips markdown/bullets), generates MP3 via emergentintegrations `OpenAITextToSpeech` (model tts-1). Cached to /tmp/tts_cache keyed by sha256(text|voice|speed). Returns {url, speaker}.
+  - `GET /api/v2/tts/{key}.mp3` — serves cached bytes with long cache-control
+- Speaker → voice map:
+  - `unit_one` → onyx @1.0 (deep authoritative AI)
+  - `renn` → coral @1.05 (warm human scientist)
+  - `apollyon` → ash @0.88 (cold, articulate, slower)
+  - `queen` → shimmer @0.92 (alien)
+  - `narrator` → echo @1.0 (calm cinematic)
+
+### Frontend
+- New `src/game/voice.ts` helper: `detectSpeaker()` heuristic + `playPanelVoice()` streams TTS via `createAudioPlayer` imperative API + `stopVoice()`
+- Every story panel (`/story`) and interlude panel (`/interlude`) now shows a tiny speaker-colored PLAY chip:
+  - Volume icon → tap to play; morphs to Stop icon while playing; loading spinner during fetch
+  - Speaker label shown next to icon (e.g. "APOLLYON", "DR. RENN")
+- Advancing panels (NEXT / SKIP) stops any playing voice
+- Speaker chip color-codes: A.I. Unit One cyan · Dr. Renn green · Apollyon red · Hive Queen magenta · Narrator grey

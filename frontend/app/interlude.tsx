@@ -9,6 +9,55 @@ import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { colors, fonts, fontSize, spacing, radius } from "@/src/theme";
 import { api } from "@/src/api";
+import { playPanelVoice, stopVoice, detectSpeaker } from "@/src/game/voice";
+
+const SPEAKER_LABELS: Record<string, string> = {
+  unit_one: "A.I. UNIT ONE", renn: "DR. RENN",
+  apollyon: "APOLLYON", narrator: "NARRATOR", queen: "HIVE QUEEN",
+};
+const SPEAKER_COLORS: Record<string, string> = {
+  unit_one: colors.brandPrimary, renn: "#00FF66",
+  apollyon: colors.brandSecondary, narrator: colors.onSurfaceSecondary, queen: "#FF00FF",
+};
+
+function VoicePlayButton({ header, body }: { header: string; body: string }) {
+  const [loading, setLoading] = React.useState(false);
+  const [playing, setPlaying] = React.useState(false);
+  const speaker = detectSpeaker(header, body);
+  const color = SPEAKER_COLORS[speaker];
+  const label = SPEAKER_LABELS[speaker];
+
+  const onPress = async () => {
+    if (loading) return;
+    if (playing) { stopVoice(); setPlaying(false); return; }
+    setLoading(true);
+    const ok = await playPanelVoice(header, body, speaker as any);
+    setLoading(false);
+    if (ok) {
+      setPlaying(true);
+      const dur = Math.max(2, (header.length + body.length) / 15) * 1000 + 500;
+      setTimeout(() => setPlaying(false), dur);
+    }
+  };
+
+  return (
+    <Pressable onPress={onPress} style={[voiceStyles.btn, { borderColor: color }]} testID={`voice-${speaker}`}>
+      {loading ? <ActivityIndicator size="small" color={color} /> : (
+        <MaterialCommunityIcons name={playing ? "stop" : "volume-high"} size={14} color={color} />
+      )}
+      <Text style={[voiceStyles.label, { color }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const voiceStyles = StyleSheet.create({
+  btn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    borderWidth: 1, paddingHorizontal: 6, paddingVertical: 3,
+    borderRadius: 4, alignSelf: "flex-start", marginTop: 6,
+  },
+  label: { fontFamily: fonts.displayBold, fontSize: 9, letterSpacing: 1 },
+});
 
 const PAGE_SFX = require("../assets/sfx/deploy.wav");
 const BOSS_SFX = require("../assets/sfx/boss.wav");
@@ -118,6 +167,7 @@ export default function InterludeScreen() {
   const isLast = idx === payload.panels.length - 1;
 
   const next = () => {
+    stopVoice();
     if (!isLast) {
       setIdx((n) => n + 1);
     } else {
@@ -126,6 +176,7 @@ export default function InterludeScreen() {
   };
 
   const skip = () => {
+    stopVoice();
     router.replace(payload.cta_next);
   };
 
@@ -174,6 +225,7 @@ export default function InterludeScreen() {
               <Text style={styles.panelBadgeText}>{idx + 1} / {payload.panels.length}</Text>
             </View>
             <Text style={[styles.panelHeader, { color: payload.accent }]}>{panel.header}</Text>
+            <VoicePlayButton header={panel.header} body={panel.body} />
             <View style={styles.panelDivider} />
             {panel.body.split("\n").map((line, i) => (
               <Text key={i} style={styles.panelLine}>{line}</Text>
