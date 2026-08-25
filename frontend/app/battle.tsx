@@ -323,6 +323,10 @@ export default function BattleScreen() {
           // hit flash overlay if last hit < 0.15s
           const hitAge = state.time - e.last_hit_at;
           const flash = hitAge >= 0 && hitAge < 0.15;
+          const isBoss = e.type === "hive_queen";
+          const bossPulse = isBoss && state.boss_phase >= 2
+            ? 1 + 0.15 * Math.sin(state.time * (state.boss_phase === 3 ? 10 : 6))
+            : 1;
           return (
             <View
               key={e.id}
@@ -331,16 +335,22 @@ export default function BattleScreen() {
                 {
                   left: `${laneIdx * 33.3 + 16.6}%`,
                   bottom: `${e.y}%`,
-                  transform: [{ translateX: -e.size / 2 }, { translateY: e.size / 2 }, { scale: landScale }],
+                  transform: [{ translateX: -e.size / 2 }, { translateY: e.size / 2 }, { scale: landScale * bossPulse }],
                   width: e.size, height: e.size,
                   backgroundColor: flash ? "#FFFFFF" : e.color,
-                  borderColor: flash ? "#FFFFFF" : (e.side === "player" ? colors.brandPrimary : colors.brandSecondary),
-                  borderWidth: 2,
+                  borderColor: flash
+                    ? "#FFFFFF"
+                    : isBoss && state.boss_phase === 3
+                      ? "#FF00FF"
+                      : isBoss && state.boss_phase === 2
+                        ? "#FF3366"
+                        : (e.side === "player" ? colors.brandPrimary : colors.brandSecondary),
+                  borderWidth: isBoss && state.boss_phase >= 2 ? 4 : 2,
                   borderRadius: e.kind === "air" ? e.size / 2 : 2,
                   opacity: e.stun > 0 ? 0.5 : 1,
-                  shadowColor: e.color,
-                  shadowOpacity: flash ? 1 : 0.6,
-                  shadowRadius: flash ? 8 : 3,
+                  shadowColor: isBoss && state.boss_phase >= 2 ? "#FF3366" : e.color,
+                  shadowOpacity: flash ? 1 : isBoss && state.boss_phase >= 2 ? 0.9 : 0.6,
+                  shadowRadius: flash ? 8 : isBoss && state.boss_phase >= 2 ? 14 : 3,
                 },
               ]}
             >
@@ -363,6 +373,26 @@ export default function BattleScreen() {
         <View style={styles.earthBase}>
           <MaterialCommunityIcons name="earth" size={40} color={colors.brandPrimary} />
         </View>
+
+        {/* Boss phase-transition banner */}
+        {state.boss_phase_flash_at > 0 && state.time - state.boss_phase_flash_at < 1.6 && (
+          <View pointerEvents="none" style={[
+            styles.bossPhaseBanner,
+            { opacity: Math.max(0, 1 - (state.time - state.boss_phase_flash_at) / 1.6) },
+          ]}>
+            <MaterialCommunityIcons
+              name={state.boss_phase === 3 ? "spider" : "alien"}
+              size={22}
+              color={colors.brandSecondary}
+            />
+            <Text style={styles.bossPhaseText}>
+              HIVE QUEEN {state.boss_phase === 3 ? "SUMMONING" : "RAGE MODE"}
+            </Text>
+            <Text style={styles.bossPhaseSub}>
+              {state.boss_phase === 3 ? "SWARM INCOMING · +70% SPEED" : "+50% SPEED"}
+            </Text>
+          </View>
+        )}
 
         {/* Combo banner (fades out after 1.4s) */}
         {state.combo && state.time - state.combo.time < 1.4 && (
@@ -728,5 +758,24 @@ const styles = StyleSheet.create({
   bossSub: {
     fontFamily: fonts.displayBold, color: colors.onSurface,
     fontSize: fontSize.lg, letterSpacing: 6, marginTop: 4,
+  },
+
+  // Boss phase-transition banner
+  bossPhaseBanner: {
+    position: "absolute", top: "40%", left: "10%", right: "10%",
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(255,51,102,0.18)",
+    borderWidth: 2, borderColor: colors.brandSecondary, borderRadius: radius.md,
+    shadowColor: colors.brandSecondary, shadowOpacity: 0.6, shadowRadius: 10,
+  },
+  bossPhaseText: {
+    fontFamily: fonts.displayBold, color: colors.brandSecondary,
+    fontSize: fontSize.lg, letterSpacing: 3, marginTop: 2,
+    textShadowColor: colors.brandSecondary, textShadowRadius: 8,
+  },
+  bossPhaseSub: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: 10, letterSpacing: 2, marginTop: 2,
   },
 });

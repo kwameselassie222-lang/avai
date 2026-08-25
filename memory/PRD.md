@@ -337,3 +337,34 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
 - Tapping an unlocked row navigates to `/story?level=X&force=1&flavor=1`
   → forces the intro to show + adds AI flavor for a fresh comic twist
 - Locked rows visually disabled (opacity 0.4, no touch)
+
+## Iteration 13 — Harder Aliens (June 2026)
+
+### Wave Density (5a)
+- L1-L2 unchanged (tutorial-safe)
+- L3+ significantly denser:
+  - L3: 4 → 6 waves
+  - L4: 4 → 7 waves
+  - L5: 5 → 8 waves
+  - L6: 4 → 7 waves
+  - L7: 5 → 9 waves
+  - L8: 5 → 9 waves
+  - L9: 5 → 10 waves
+  - L10: 5 → 9 waves (+ Hive Queen)
+- Mix rebalanced with earlier Brute appearances, back-to-back multi-lane pressure
+
+### Hive Queen Phase System (4a)
+- Phase 1 (100%–66% HP): baseline behavior
+- Phase 2 (≤66% HP): **RAGE MODE**
+  - +50% movement speed (rage_mult 1.5)
+  - Pink pulsing aura on boss entity (4px border, sin-wave scale pulse)
+  - Red "HIVE QUEEN — RAGE MODE" banner + boss.wav + haptic
+  - 6 red particles burst around queen
+- Phase 3 (≤33% HP): **SUMMONING**
+  - +70% movement speed (rage_mult 1.7)
+  - Magenta aura + faster pulse
+  - Summons 2 crawlers in random lanes every 6 seconds
+  - Magenta "HIVE QUEEN — SUMMONING" banner + boss.wav
+  - 10 magenta particles burst
+  - "CRAWLER SWARM SUMMONED" event log entry per swarm
+- L10 core HP bumped 1600 → 1800 to accommodate longer phased fight

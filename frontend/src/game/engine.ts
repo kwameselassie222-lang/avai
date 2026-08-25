@@ -24,6 +24,7 @@ export type Entity = {
   size: number;
   spawn_time: number;
   last_hit_at: number;
+  rage_mult?: number; // boss speed multiplier when raging
 };
 
 export type Particle = {
@@ -65,6 +66,9 @@ export type BattleState = {
   combo: { lane: Lane; time: number; count: number } | null;
   boss_intro_at: number | null; // set when boss first spawns
   boss_intro_shown: boolean;
+  boss_phase: 1 | 2 | 3;
+  boss_last_summon_at: number;
+  boss_phase_flash_at: number; // fx trigger when phase transitions
 };
 
 const ENERGY_REGEN_PER_SEC = 0.5;
@@ -141,6 +145,9 @@ export function initBattle(
     combo: null,
     boss_intro_at: null,
     boss_intro_shown: false,
+    boss_phase: 1,
+    boss_last_summon_at: 0,
+    boss_phase_flash_at: -999,
   };
 }
 
@@ -267,6 +274,60 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
     }
   }
 
+  // ==== Hive Queen 3-phase behavior ====
+  if (level.boss) {
+    const boss = state.entities.find((e) => e.type === level.boss && e.hp > 0);
+    if (boss) {
+      const hpRatio = boss.hp / boss.max_hp;
+      // Phase 2: 66% → +50% speed (RAGE)
+      if (state.boss_phase === 1 && hpRatio <= 0.66) {
+        state.boss_phase = 2;
+        boss.rage_mult = 1.5;
+        state.boss_phase_flash_at = state.time;
+        state.events.push("⚠ HIVE QUEEN — RAGE MODE");
+        if (state.events.length > 8) state.events.shift();
+        state.screen_shake = Math.max(state.screen_shake, 0.7);
+        queueSound(state, "boss");
+        // Visual particles around queen
+        for (let i = 0; i < 6; i++) {
+          state.particles.push({
+            id: uid(), lane: boss.lane, y: boss.y,
+            color: "#FF3366", size: 22, born_at: state.time + i * 0.05, ttl: 0.6, kind: "hit",
+          });
+        }
+      }
+      // Phase 3: 33% → summons crawler swarms
+      if (state.boss_phase === 2 && hpRatio <= 0.33) {
+        state.boss_phase = 3;
+        boss.rage_mult = 1.7;
+        state.boss_phase_flash_at = state.time;
+        state.boss_last_summon_at = state.time - 6; // trigger summon immediately
+        state.events.push("⚠ HIVE QUEEN — SPAWNING SWARM");
+        if (state.events.length > 8) state.events.shift();
+        state.screen_shake = 1;
+        queueSound(state, "boss");
+        for (let i = 0; i < 10; i++) {
+          state.particles.push({
+            id: uid(), lane: boss.lane, y: boss.y,
+            color: "#FF00FF", size: 26, born_at: state.time + i * 0.04, ttl: 0.7, kind: "hit",
+          });
+        }
+      }
+      // Phase 3: every 6s summon 2 crawlers in random lanes
+      if (state.boss_phase === 3 && state.time - state.boss_last_summon_at >= 6) {
+        state.boss_last_summon_at = state.time;
+        const lanes: Lane[] = ["left", "center", "right"];
+        for (let i = 0; i < 2; i++) {
+          const ln = lanes[Math.floor(Math.random() * 3)];
+          spawnAlien(state, { type: "crawler", lane: ln }, level);
+        }
+        state.events.push("◆ CRAWLER SWARM SUMMONED");
+        if (state.events.length > 8) state.events.shift();
+        queueSound(state, "ability");
+      }
+    }
+  }
+
   const overclock = state.overclock_until > state.time;
   const boost = overclock && state.ability?.id === "overclock" ? (state.ability.boost || 0.5) : 0;
 
@@ -293,10 +354,10 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
     if (useCore && coreDist > e.range) {
       // Move toward core
       const dir = e.side === "player" ? 1 : -1;
-      e.y += dir * e.speed * (1 + boost) * dt * 4.0;
+      e.y += dir * e.speed * (e.rage_mult || 1) * (1 + boost) * dt * 4.0;
     } else if (target && bestDist > e.range) {
       const dir = target.y > e.y ? 1 : -1;
-      e.y += dir * e.speed * (1 + boost) * dt * 4.0;
+      e.y += dir * e.speed * (e.rage_mult || 1) * (1 + boost) * dt * 4.0;
     } else {
       // Attack
       e.atk_cooldown -= dt;
