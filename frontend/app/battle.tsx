@@ -511,6 +511,17 @@ export default function BattleScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => {
+                    // Special: L10 victory → epilogue
+                    if (result.victory && level.id === 10) {
+                      setRewardShown(false);
+                      setResult(null);
+                      setStarsShown(0);
+                      stateRef.current = null;
+                      setReady(false);
+                      setSelectedRobot(null);
+                      router.replace("/epilogue");
+                      return;
+                    }
                     const nextId = result.victory ? Math.min(level.id + 1, 10) : level.id;
                     setRewardShown(false);
                     setResult(null);
@@ -518,7 +529,12 @@ export default function BattleScreen() {
                     stateRef.current = null;
                     setReady(false);
                     setSelectedRobot(null);
-                    router.replace(`/battle?level=${nextId}`);
+                    // Victory → route through /story so a new level gets its intro
+                    if (result.victory) {
+                      router.replace(`/story?level=${nextId}`);
+                    } else {
+                      router.replace(`/battle?level=${nextId}`);
+                    }
                   }}
                   style={[styles.actionBtn, {
                     borderColor: result.victory ? colors.brandPrimary : colors.brandSecondary,
@@ -533,7 +549,7 @@ export default function BattleScreen() {
                   <Text style={[styles.actionText, {
                     color: result.victory ? colors.brandPrimary : colors.brandSecondary,
                   }]}>
-                    {result.victory ? "NEXT" : "RETRY"}
+                    {result.victory ? (level.id === 10 ? "EPILOGUE" : "NEXT") : "RETRY"}
                   </Text>
                 </Pressable>
               </View>

@@ -724,6 +724,28 @@ export const api = {
   async v2Evolve(playerId: string): Promise<any> {
     return j(await fetch(`${API}/v2/commander/evolve?player_id=${playerId}`, { method: "POST" }));
   },
+  async v2Story(levelId: number, flavor: boolean = false): Promise<V2Story> {
+    return j<V2Story>(await fetch(`${API}/v2/story/${levelId}${flavor ? "?flavor=true" : ""}`));
+  },
+  async v2StoryEpilogue(): Promise<V2Epilogue> {
+    return j<V2Epilogue>(await fetch(`${API}/v2/story/epilogue`));
+  },
+};
+
+// ==== V2 Story types ====
+export type V2Panel = { header: string; body: string };
+export type V2Story = {
+  level_id: number;
+  level_name: string;
+  location: string;
+  time_stamp: string;
+  tagline: string;
+  panels: V2Panel[];
+  flavor_line: string | null;
+};
+export type V2Epilogue = {
+  title: string;
+  panels: V2Panel[];
 };
 
 // ==== V2 types ====

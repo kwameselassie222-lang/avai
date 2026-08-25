@@ -39,7 +39,7 @@ export default function MapScreen() {
           return (
             <React.Fragment key={L.id}>
               <Pressable
-                onPress={() => unlocked && router.push(`/battle?level=${L.id}`)}
+                onPress={() => unlocked && router.push(`/story?level=${L.id}`)}
                 disabled={!unlocked}
                 style={[
                   styles.level,

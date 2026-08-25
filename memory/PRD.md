@@ -273,3 +273,46 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
 - RAF loop mutates in place & calls `forceRender((n) => n + 1)` at frame end
 - `deployRobot` / `useAbility` mutate the same ref (no race with in-flight setState)
 - Effect deps simplified to `[ready, level]` — the RAF no longer restarts every frame
+
+## Iteration 11 — Story Mode (June 2026)
+
+### Backstory Intros (10 comic-book panels)
+- Curated 3-panel narratives for every level, comic-book style:
+  - Panel 1: Location + situation
+  - Panel 2: New threat / hostile intel
+  - Panel 3: Directive + A.I. UNIT ONE sign-off
+- All 10 levels: Atlanta, Washington DC, NYC, London, Lagos, Cairo, Dubai, Mumbai, Shanghai, Tokyo (final)
+
+### Story Screen (`app/story.tsx`)
+- Location badge + UTC timestamp + SKIP top-right
+- OPERATION 01-10 label + mission tagline hero title
+- Comic panel with big cyan border, numbered badge (1/3), header, staccato body lines
+- Threat panel on final page listing incoming enemy types + boss chip
+- Progress dots + big cyan DEPLOY / NEXT CTA
+- Fade + slide-in animation per panel transition
+- Page-turn SFX (reuses deploy.wav quiet)
+
+### Frequency Logic
+- First attempt of each level: full intro shown
+- Marked seen in AsyncStorage (`aliens_vai_seen_intro_<levelId>`)
+- Subsequent /story?level=X auto-forwards to /battle?level=X
+- SKIP button also marks seen and forwards
+- `?force=1` param overrides (for replay)
+
+### Backend (`GET /api/v2/story/{level_id}`)
+- Returns level meta + panels + optional `flavor_line`
+- `?flavor=true` uses Gemini 3 Flash (Emergent LLM Key) to generate a fresh comic-panel line
+- 10 curated stories keyed by level id
+
+### Epilogue Screen (`app/epilogue.tsx`)
+- Triggered after L10 Hive Queen victory
+- 3-panel ending: SUNRISE / REPORT / SIGNAL (deep-space uplink teases future content)
+- "EARTH SAVED" medal on final panel
+- Cyan RETURN HOME CTA routes back to /(tabs)/command
+- Backend: `GET /api/v2/story/epilogue`
+
+### Routing Updates
+- Map (fleet.tsx): level pins now open `/story?level=X` (not `/battle`)
+- Victory NEXT button on levels 1-9 → `/story?level=nextId`
+- Victory on L10 → replaces `EPILOGUE` label → `/epilogue` route
+- Defeat RETRY → `/battle?level=<same>` (no story replay)

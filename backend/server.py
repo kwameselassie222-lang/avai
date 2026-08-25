@@ -2915,6 +2915,201 @@ def _v2_upgrade_cost(current_level: int) -> int:
     return 30 + max(0, current_level - 1) * 25
 
 
+# ==== V2 Story — comic-book intros per level ====
+V2_STORIES: Dict[int, dict] = {
+    1: {
+        "location": "ATLANTA, USA",
+        "time_stamp": "03:14 UTC",
+        "tagline": "First Landing",
+        "panels": [
+            {"header": "PATIENT ZERO",
+             "body": "Meteor streaks?\nNo.\nDROP-SHIPS.\nThey're already inside the perimeter."},
+            {"header": "HOSTILES",
+             "body": "Fast movers. Bio-armor.\nThey call themselves CRAWLERS.\nThey eat concrete."},
+            {"header": "DIRECTIVE",
+             "body": "Deploy SCOUTS.\nHold the Peachtree line.\nDestroy the alien beacon.\n— A.I. UNIT ONE"},
+        ],
+    },
+    2: {
+        "location": "WASHINGTON, D.C.",
+        "time_stamp": "05:41 UTC",
+        "tagline": "Capital Siege",
+        "panels": [
+            {"header": "CAPITAL DARK",
+             "body": "Congress is dark.\nThe White House is dark.\nYou are what's left."},
+            {"header": "NEW THREAT",
+             "body": "SPITTERS emerge.\nAcid rounds at 60 meters.\nDo NOT let them nest."},
+            {"header": "DIRECTIVE",
+             "body": "Hold three lanes.\nSave the archives.\n— A.I. UNIT ONE"},
+        ],
+    },
+    3: {
+        "location": "NEW YORK CITY",
+        "time_stamp": "08:22 UTC",
+        "tagline": "Skies Eclipsed",
+        "panels": [
+            {"header": "MANHATTAN OMEN",
+             "body": "Sky turned copper.\nSomething's flying up there.\nSomething big."},
+            {"header": "AIRBORNE HOSTILES",
+             "body": "FLYERS. Class-2 chitin.\nGround bots can't touch them.\nTime to deploy DRONE support."},
+            {"header": "DIRECTIVE",
+             "body": "Reclaim the skyline.\nNothing lives here but us.\n— A.I. UNIT ONE"},
+        ],
+    },
+    4: {
+        "location": "LONDON, UK",
+        "time_stamp": "10:05 UTC",
+        "tagline": "The Thames Burns",
+        "panels": [
+            {"header": "THE DOCKS FALL",
+             "body": "Fog. Salt.\nSomething crawling up from the water.\nBigger than before."},
+            {"header": "BRUTE CLASS",
+             "body": "BRUTES.\nThey tank railgun fire.\nBring GUARDIANS or die."},
+            {"header": "DIRECTIVE",
+             "body": "Hold the docks.\nWe can't lose Europe.\n— A.I. UNIT ONE"},
+        ],
+    },
+    5: {
+        "location": "LAGOS, NIGERIA",
+        "time_stamp": "12:33 UTC",
+        "tagline": "West African Front",
+        "panels": [
+            {"header": "TWIN LANES",
+             "body": "The invasion doubled overnight.\nTwin lanes. Twin nightmares.\nAfrica is ours to lose."},
+            {"header": "SWARM PROTOCOL",
+             "body": "Two-lane parallel assault.\nCrawlers. Flyers. Brutes.\nThey're testing us."},
+            {"header": "DIRECTIVE",
+             "body": "Deploy STRIKERS on point.\nFire until the sky is empty.\n— A.I. UNIT ONE"},
+        ],
+    },
+    6: {
+        "location": "CAIRO, EGYPT",
+        "time_stamp": "15:10 UTC",
+        "tagline": "Pyramid Omen",
+        "panels": [
+            {"header": "THE TOMBS SPEAK",
+             "body": "They walk between the tombs now.\nSomething old is under the sand.\nSomething older is waking it up."},
+            {"header": "ELITE HOSTILES",
+             "body": "BRUTE elite.\nKevlar-melting acid.\nYou will bleed for this ground."},
+            {"header": "DIRECTIVE",
+             "body": "Push forward.\nThe relics can't fall.\n— A.I. UNIT ONE"},
+        ],
+    },
+    7: {
+        "location": "DUBAI, UAE",
+        "time_stamp": "18:47 UTC",
+        "tagline": "Glass Citadel",
+        "panels": [
+            {"header": "TOWERS BURN",
+             "body": "Downtown reflects nothing but plasma.\nTower by tower, it burns.\nWe won't be the ones who fell."},
+            {"header": "COORDINATED SWARM",
+             "body": "Crawlers on both flanks.\nA Brute pushes the center.\nAliens learned our tactics."},
+            {"header": "DIRECTIVE",
+             "body": "SNIPERS unlocked.\nPick them apart.\n— A.I. UNIT ONE"},
+        ],
+    },
+    8: {
+        "location": "MUMBAI, INDIA",
+        "time_stamp": "20:19 UTC",
+        "tagline": "Coast Breach",
+        "panels": [
+            {"header": "TWENTY MILLION",
+             "body": "Twenty million souls behind you.\nThe ocean bled first.\nThe city is next."},
+            {"header": "MASS ASSAULT",
+             "body": "Flyers. Brutes. Spitters.\nEverything they have, all at once.\nShow them everything you have."},
+            {"header": "DIRECTIVE",
+             "body": "Hold Marine Drive.\nBuy the evac 90 seconds.\n— A.I. UNIT ONE"},
+        ],
+    },
+    9: {
+        "location": "SHANGHAI",
+        "time_stamp": "22:56 UTC",
+        "tagline": "Eastern Thunder",
+        "panels": [
+            {"header": "LAST MEGACITY",
+             "body": "Neon and gunfire.\nThe last megacity standing.\nThe bridge cannot fall."},
+            {"header": "COORDINATED STRIKE",
+             "body": "Alien flyers precede the Brutes.\nThe Spitters melt through concrete.\nThey're building something in Tokyo."},
+            {"header": "DIRECTIVE",
+             "body": "Take back the Bund.\nOne last stand before the Queen.\n— A.I. UNIT ONE"},
+        ],
+    },
+    10: {
+        "location": "TOKYO, JAPAN",
+        "time_stamp": "23:59 UTC",
+        "tagline": "THE FINAL HIVE",
+        "panels": [
+            {"header": "THE QUEEN AWAITS",
+             "body": "Rain and radiation.\nA tower of alien flesh rises in Shibuya.\nTheir Queen is here."},
+            {"header": "HIVE QUEEN",
+             "body": "3000 HP.\nAlien meta-mind.\nShe sees every lane you'll pick."},
+            {"header": "DIRECTIVE",
+             "body": "Deploy your best.\nEnd the invasion tonight.\nTITANS unleashed.\n— A.I. UNIT ONE"},
+        ],
+    },
+}
+
+
+V2_EPILOGUE = {
+    "title": "DAWN OVER TOKYO",
+    "panels": [
+        {"header": "SUNRISE",
+         "body": "Tokyo is silent for the first time in months.\nThe Queen's carcass steams in the rain."},
+        {"header": "REPORT",
+         "body": "Global casualties: 4.2 billion.\nAlien casualties: total.\nWe won.\nWhat now?"},
+        {"header": "SIGNAL",
+         "body": "Deep-space uplink online.\nA new signal from beyond Neptune.\nA.I. UNIT ONE stands down.\nFor now."},
+    ],
+}
+
+
+@api_router.get("/v2/story/epilogue")
+async def v2_story_epilogue():
+    return V2_EPILOGUE
+
+
+@api_router.get("/v2/story/{level_id}")
+async def v2_story(level_id: int, flavor: bool = False):
+    story = V2_STORIES.get(level_id)
+    if not story:
+        raise HTTPException(status_code=404, detail="story not found")
+    L = _v2_level_by_id(level_id)
+    if not L:
+        raise HTTPException(status_code=404, detail="level not found")
+    result = {
+        "level_id": level_id,
+        "level_name": L["name"],
+        "location": story["location"],
+        "time_stamp": story["time_stamp"],
+        "tagline": story["tagline"],
+        "panels": story["panels"],
+        "flavor_line": None,
+    }
+    if flavor and EMERGENT_LLM_KEY:
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            chat = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"story-{level_id}-{uuid.uuid4().hex[:6]}",
+                system_message=(
+                    "You are the narrative voice of an Earth-defense war-log in 2049. "
+                    "Style: comic-book panel. ALL CAPS headers, staccato bold lines, no more than 3 short lines total. "
+                    "No emojis. No markdown. Feel: intense, cinematic, hopeful under pressure."
+                ),
+            ).with_model("gemini", "gemini-3-flash-preview")
+            prompt = (
+                f"Location: {story['location']}. Tagline: {story['tagline']}. "
+                f"Threats: {[w['type'] for w in L['waves']]}. "
+                f"Write one fresh comic-panel FLAVOR LINE (3 short lines max) that a returning commander sees. "
+                "Do not repeat the tagline. Reference the location."
+            )
+            resp = await chat.send_message(UserMessage(text=prompt))
+            result["flavor_line"] = str(resp).strip()
+        except Exception:
+            logger.exception("v2 story flavor failed")
+    return result
+
+
 @api_router.get("/v2/config")
 async def v2_config():
     return {
