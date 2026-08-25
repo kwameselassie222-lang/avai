@@ -69,6 +69,11 @@ export type BattleState = {
   boss_phase: 1 | 2 | 3;
   boss_last_summon_at: number;
   boss_phase_flash_at: number; // fx trigger when phase transitions
+  difficulty: "normal" | "veteran";
+  surge_index: number;
+  surge_flash_at: number; // fx trigger when a surge triggers
+  surges: { at: number; type: string }[];
+  waves: { at: number; type: string; lane: Lane }[]; // possibly-expanded per difficulty
 };
 
 const ENERGY_REGEN_PER_SEC = 0.5;
@@ -112,11 +117,28 @@ export function initBattle(
   _deck: string[],
   robot_levels: Record<string, number>,
   ability_id: string,
+  difficulty: "normal" | "veteran" = "normal",
 ): BattleState {
   const rMap: Record<string, V2Robot> = {};
   robots.forEach((r) => (rMap[r.id] = r));
   const aMap: Record<string, V2Alien> = {};
   aliens.forEach((a) => (aMap[a.id] = a));
+
+  // ==== Difficulty expansion ====
+  // VETERAN: each wave gets a duplicate 1.5s later in an adjacent lane (2× density)
+  const laneOrder: Lane[] = ["left", "center", "right"];
+  let expandedWaves: { at: number; type: string; lane: Lane }[] = level.waves.map((w) => ({ ...w }));
+  if (difficulty === "veteran") {
+    const extras: { at: number; type: string; lane: Lane }[] = [];
+    for (const w of level.waves) {
+      const idx = laneOrder.indexOf(w.lane);
+      const altLane = laneOrder[(idx + 1) % 3];
+      extras.push({ at: w.at + 1.5, type: w.type, lane: altLane });
+    }
+    expandedWaves = [...expandedWaves, ...extras].sort((a, b) => a.at - b.at);
+    // Note: alien HP/ATK scaling handled in spawnAlien via state.difficulty
+  }
+
   return {
     playing: true,
     outcome: null,
@@ -148,6 +170,11 @@ export function initBattle(
     boss_phase: 1,
     boss_last_summon_at: 0,
     boss_phase_flash_at: -999,
+    difficulty,
+    surge_index: 0,
+    surge_flash_at: -999,
+    surges: (level.surges || []).map((s) => ({ ...s })),
+    waves: expandedWaves,
   };
 }
 
@@ -210,7 +237,7 @@ export function deployRobot(state: BattleState, robotId: string, lane: Lane): bo
 function spawnAlien(state: BattleState, wave: { type: string; lane: Lane }, level: V2Level) {
   const a = state.aliens[wave.type];
   if (!a) return;
-  const diff = level.difficulty;
+  const diff = level.difficulty * (state.difficulty === "veteran" ? 1.3 : 1.0);
   state.entities.push({
     id: uid(), side: "alien", type: a.id, name: a.name, kind: a.kind,
     hp: Math.round(a.hp * diff), max_hp: Math.round(a.hp * diff),
@@ -253,12 +280,28 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
   state.ability_charge = Math.min(1, state.ability_charge + ABILITY_CHARGE_PER_SEC * dt);
   state.screen_shake = Math.max(0, state.screen_shake - dt * 2.0);
 
-  // Spawn waves
-  while (state.wave_index < level.waves.length && level.waves[state.wave_index].at <= state.time) {
-    spawnAlien(state, level.waves[state.wave_index], level);
-    state.events.push(`▮ ${state.aliens[level.waves[state.wave_index].type]?.name || "?"} incoming`);
+  // Spawn waves (use state.waves — potentially expanded by veteran mode)
+  while (state.wave_index < state.waves.length && state.waves[state.wave_index].at <= state.time) {
+    const w = state.waves[state.wave_index];
+    spawnAlien(state, w, level);
+    state.events.push(`▮ ${state.aliens[w.type]?.name || "?"} incoming`);
     if (state.events.length > 8) state.events.shift();
     state.wave_index++;
+  }
+
+  // ==== SURGE events (L7+): synchronized triple-lane spawn moments ====
+  while (state.surge_index < state.surges.length && state.surges[state.surge_index].at <= state.time) {
+    const surge = state.surges[state.surge_index];
+    const laneList: Lane[] = ["left", "center", "right"];
+    for (const ln of laneList) {
+      spawnAlien(state, { type: surge.type, lane: ln }, level);
+    }
+    state.surge_flash_at = state.time;
+    state.events.push(`⚠ SURGE — ${state.aliens[surge.type]?.name || surge.type.toUpperCase()} × 3`);
+    if (state.events.length > 8) state.events.shift();
+    state.screen_shake = Math.max(state.screen_shake, 0.6);
+    queueSound(state, "boss");
+    state.surge_index++;
   }
 
   // Spawn a boss around time 45 for boss level 10

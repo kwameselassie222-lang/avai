@@ -29,8 +29,9 @@ const BG_LOOP = require("../assets/sfx/bg_loop.wav");
 
 export default function BattleScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ level?: string }>();
+  const params = useLocalSearchParams<{ level?: string; difficulty?: string }>();
   const levelId = Number(params.level || 1);
+  const difficulty: "normal" | "veteran" = params.difficulty === "veteran" ? "veteran" : "normal";
   const [config, setConfig] = useState<V2Config | null>(null);
   const [camp, setCamp] = useState<V2Campaign | null>(null);
   const [level, setLevel] = useState<V2Level | null>(null);
@@ -128,7 +129,7 @@ export default function BattleScreen() {
       const deck = (p.campaign.deck && p.campaign.deck.length > 0)
         ? p.campaign.deck
         : p.campaign.unlocked_robots.slice(0, 6);
-      const st = initBattle(L, c.robots, c.aliens, c.abilities, deck, p.campaign.robot_levels, p.campaign.commander_ability);
+      const st = initBattle(L, c.robots, c.aliens, c.abilities, deck, p.campaign.robot_levels, p.campaign.commander_ability, difficulty);
       const stage = c.stages.find((s) => s.stage === p.campaign.commander_stage);
       if (stage) {
         st.earth_max_hp = Math.round(st.earth_max_hp * (1 + stage.hp_bonus / 100));
@@ -141,7 +142,7 @@ export default function BattleScreen() {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [levelId]);
+  }, [levelId, difficulty]);
 
   // Game loop — single stable RAF driven only by level/ready. Reads/writes stateRef.
   useEffect(() => {
@@ -197,6 +198,7 @@ export default function BattleScreen() {
           stars,
           time_taken_sec: st.time,
           core_hp_remaining_pct: (st.earth_hp / st.earth_max_hp) * 100,
+          difficulty,
         });
         setResult({
           victory: st.outcome === "win",
@@ -213,7 +215,7 @@ export default function BattleScreen() {
         Alert.alert("SYNC FAILED", String(e.message));
       }
     })();
-  }, [outcome, camp, level, router, rewardShown, bgPlayer]);
+  }, [outcome, camp, level, router, rewardShown, bgPlayer, difficulty]);
 
   if (!ready || !level || !config || !camp || !stateRef.current) {
     return <View style={styles.loader}><ActivityIndicator color={colors.brandPrimary} /></View>;
@@ -256,7 +258,15 @@ export default function BattleScreen() {
           <MaterialCommunityIcons name="close" size={20} color={colors.brandPrimary} />
         </Pressable>
         <View style={styles.hpWrap}>
-          <Text style={styles.hpLabel}>ALIEN CORE</Text>
+          <View style={styles.hpLabelRow}>
+            <Text style={styles.hpLabel}>ALIEN CORE</Text>
+            {difficulty === "veteran" && (
+              <View style={styles.vetBadge}>
+                <MaterialCommunityIcons name="skull" size={9} color="#FF3366" />
+                <Text style={styles.vetBadgeText}>VETERAN · 2× REWARDS</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.hpBar}>
             <View style={[styles.hpFill, { width: `${(state.alien_hp / state.alien_max_hp) * 100}%`, backgroundColor: colors.brandSecondary }]} />
           </View>
@@ -373,6 +383,18 @@ export default function BattleScreen() {
         <View style={styles.earthBase}>
           <MaterialCommunityIcons name="earth" size={40} color={colors.brandPrimary} />
         </View>
+
+        {/* Surge banner (triple-lane spawn moment) */}
+        {state.surge_flash_at > 0 && state.time - state.surge_flash_at < 1.6 && (
+          <View pointerEvents="none" style={[
+            styles.surgeBanner,
+            { opacity: Math.max(0, 1 - (state.time - state.surge_flash_at) / 1.6) },
+          ]}>
+            <MaterialCommunityIcons name="triangle-wave" size={22} color={colors.warning} />
+            <Text style={styles.surgeText}>⚠ SURGE INCOMING</Text>
+            <Text style={styles.surgeSub}>ALL LANES — HOSTILES CONVERGE</Text>
+          </View>
+        )}
 
         {/* Boss phase-transition banner */}
         {state.boss_phase_flash_at > 0 && state.time - state.boss_phase_flash_at < 1.6 && (
@@ -541,7 +563,8 @@ export default function BattleScreen() {
                 </Pressable>
                 <Pressable
                   onPress={() => {
-                    // Special: L10 victory → epilogue
+                    const suffix = difficulty === "veteran" ? "&difficulty=veteran" : "";
+                    // Special: L10 victory → Apollyon reveal → epilogue
                     if (result.victory && level.id === 10) {
                       setRewardShown(false);
                       setResult(null);
@@ -549,7 +572,7 @@ export default function BattleScreen() {
                       stateRef.current = null;
                       setReady(false);
                       setSelectedRobot(null);
-                      router.replace("/epilogue");
+                      router.replace("/interlude?kind=reveal&id=world1");
                       return;
                     }
                     const nextId = result.victory ? Math.min(level.id + 1, 10) : level.id;
@@ -563,9 +586,9 @@ export default function BattleScreen() {
                     // Note: fresh levels have never been seen, so they show base intros.
                     // Replays through Codex or /story?level=X&force=1&flavor=1 get AI flavor.
                     if (result.victory) {
-                      router.replace(`/story?level=${nextId}`);
+                      router.replace(`/story?level=${nextId}${suffix}`);
                     } else {
-                      router.replace(`/battle?level=${nextId}`);
+                      router.replace(`/battle?level=${nextId}${suffix}`);
                     }
                   }}
                   style={[styles.actionBtn, {
@@ -604,7 +627,15 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 4 },
   hpWrap: { flex: 1 },
-  hpLabel: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: 9, letterSpacing: 1.5, marginBottom: 2 },
+  hpLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 2 },
+  hpLabel: { fontFamily: fonts.displayBold, color: colors.brandSecondary, fontSize: 9, letterSpacing: 1.5 },
+  vetBadge: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    borderWidth: 1, borderColor: "#FF3366",
+    paddingHorizontal: 4, paddingVertical: 1,
+    backgroundColor: "rgba(255,51,102,0.15)",
+  },
+  vetBadgeText: { fontFamily: fonts.displayBold, color: "#FF3366", fontSize: 8, letterSpacing: 1 },
   hpLabelBottom: { fontFamily: fonts.displayBold, color: colors.success, fontSize: 9, letterSpacing: 1.5, marginTop: 2 },
   hpBar: { height: 6, backgroundColor: colors.surfaceTertiary, borderRadius: 2, overflow: "hidden" },
   hpFill: { height: 6 },
@@ -775,6 +806,25 @@ const styles = StyleSheet.create({
     textShadowColor: colors.brandSecondary, textShadowRadius: 8,
   },
   bossPhaseSub: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: 10, letterSpacing: 2, marginTop: 2,
+  },
+
+  // Surge banner
+  surgeBanner: {
+    position: "absolute", top: "35%", left: "10%", right: "10%",
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    backgroundColor: "rgba(255,176,32,0.18)",
+    borderWidth: 2, borderColor: colors.warning, borderRadius: radius.md,
+    shadowColor: colors.warning, shadowOpacity: 0.6, shadowRadius: 10,
+  },
+  surgeText: {
+    fontFamily: fonts.displayBold, color: colors.warning,
+    fontSize: fontSize.lg, letterSpacing: 3, marginTop: 2,
+    textShadowColor: colors.warning, textShadowRadius: 8,
+  },
+  surgeSub: {
     fontFamily: fonts.displayBold, color: colors.onSurface,
     fontSize: 10, letterSpacing: 2, marginTop: 2,
   },

@@ -689,6 +689,7 @@ export const api = {
     stars?: number;
     time_taken_sec?: number;
     core_hp_remaining_pct?: number;
+    difficulty?: "normal" | "veteran";
   }): Promise<V2BattleResult> {
     const res = await fetch(`${API}/v2/battle/complete`, {
       method: "POST",
@@ -730,6 +731,12 @@ export const api = {
   async v2StoryEpilogue(): Promise<V2Epilogue> {
     return j<V2Epilogue>(await fetch(`${API}/v2/story/epilogue`));
   },
+  async v2StoryChapter(chapterId: number): Promise<V2ChapterOpener> {
+    return j<V2ChapterOpener>(await fetch(`${API}/v2/story/chapter/${chapterId}`));
+  },
+  async v2StoryReveal(revealId: string): Promise<V2Reveal> {
+    return j<V2Reveal>(await fetch(`${API}/v2/story/reveal/${revealId}`));
+  },
 };
 
 // ==== V2 Story types ====
@@ -740,10 +747,23 @@ export type V2Story = {
   location: string;
   time_stamp: string;
   tagline: string;
+  chapter: string | null;
+  previously: string | null;
+  next_teaser: string | null;
   panels: V2Panel[];
   flavor_line: string | null;
 };
 export type V2Epilogue = {
+  title: string;
+  panels: V2Panel[];
+};
+export type V2ChapterOpener = {
+  chapter: string;
+  title: string;
+  epigraph: string;
+  panels: V2Panel[];
+};
+export type V2Reveal = {
   title: string;
   panels: V2Panel[];
 };
@@ -758,9 +778,10 @@ export type V2Alien = {
   kind: "ground" | "air"; reward: number; boss?: boolean;
 };
 export type V2Wave = { at: number; type: string; lane: "left" | "center" | "right" };
+export type V2Surge = { at: number; type: string };
 export type V2Level = {
   id: number; name: string; world: number; difficulty: number; energy_start: number;
-  target_time: number; waves: V2Wave[]; core_hp: number; boss?: string;
+  target_time: number; waves: V2Wave[]; core_hp: number; boss?: string; surges?: V2Surge[];
 };
 export type V2Ability = { id: string; name: string; desc: string; damage?: number; stun?: number; heal_pct?: number; duration?: number; boost?: number };
 export type V2Stage = { stage: number; name: string; req_stars: number; hp_bonus: number };

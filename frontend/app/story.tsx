@@ -25,10 +25,11 @@ const ALIEN_LABELS: Record<string, string> = {
 
 export default function StoryScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ level?: string; force?: string; flavor?: string }>();
+  const params = useLocalSearchParams<{ level?: string; force?: string; flavor?: string; difficulty?: string }>();
   const levelId = Number(params.level || 1);
   const force = params.force === "1";
   const flavorReq = params.flavor === "1";
+  const difficulty: "normal" | "veteran" = params.difficulty === "veteran" ? "veteran" : "normal";
 
   const [story, setStory] = useState<V2Story | null>(null);
   const [config, setConfig] = useState<V2Config | null>(null);
@@ -40,31 +41,34 @@ export default function StoryScreen() {
 
   const pageSfx = useAudioPlayer(PAGE_SFX);
 
-  // If the level has been seen before, skip straight to battle
+  // Always show story (no auto-skip). Fetch story data.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!force) {
-        const seen = await AsyncStorage.getItem(`${SEEN_INTRO_PREFIX}${levelId}`);
-        if (seen === "1" && !cancelled) {
-          router.replace(`/battle?level=${levelId}`);
-          return;
-        }
-      }
       try {
-        const [s, c] = await Promise.all([api.v2Story(levelId, flavorReq), api.v2Config()]);
+        // Fetch base story (fast) first
+        const [s, c] = await Promise.all([api.v2Story(levelId, false), api.v2Config()]);
         if (cancelled) return;
         setStory(s);
         setConfig(c);
         setLoading(false);
+        // Kick off Gemini flavor async (only for replays) — updates flavor_line when ready
+        if (flavorReq) {
+          api.v2Story(levelId, true).then((s2) => {
+            if (cancelled) return;
+            if (s2.flavor_line) {
+              setStory((prev) => (prev ? { ...prev, flavor_line: s2.flavor_line } : s2));
+            }
+          }).catch(() => { /* silently skip on failure */ });
+        }
       } catch (e) {
         // fallback — go directly to battle if intro can't load
         console.warn("story load failed", e);
-        router.replace(`/battle?level=${levelId}`);
+        router.replace(`/battle?level=${levelId}${difficulty === "veteran" ? "&difficulty=veteran" : ""}`);
       }
     })();
     return () => { cancelled = true; };
-  }, [levelId, force, flavorReq, router]);
+  }, [levelId, force, flavorReq, difficulty, router]);
 
   // Panel entrance animation
   const animateIn = useCallback(() => {
@@ -88,14 +92,14 @@ export default function StoryScreen() {
       setPanelIdx((n) => n + 1);
     } else {
       await AsyncStorage.setItem(`${SEEN_INTRO_PREFIX}${levelId}`, "1");
-      router.replace(`/battle?level=${levelId}`);
+      router.replace(`/battle?level=${levelId}${difficulty === "veteran" ? "&difficulty=veteran" : ""}`);
     }
   };
 
   const skip = async () => {
     try { Haptics.selectionAsync().catch(() => {}); } catch {}
     await AsyncStorage.setItem(`${SEEN_INTRO_PREFIX}${levelId}`, "1");
-    router.replace(`/battle?level=${levelId}`);
+    router.replace(`/battle?level=${levelId}${difficulty === "veteran" ? "&difficulty=veteran" : ""}`);
   };
 
   if (loading || !story || !config) {
@@ -136,6 +140,7 @@ export default function StoryScreen() {
 
         {/* Mission title */}
         <View style={styles.titleBlock}>
+          {story.chapter && <Text style={styles.chapterLabel}>{story.chapter}</Text>}
           <Text style={styles.opLabel}>OPERATION {String(levelId).padStart(2, "0")}</Text>
           <Text style={styles.mission}>{story.tagline.toUpperCase()}</Text>
           <View style={styles.divider} />
@@ -143,8 +148,18 @@ export default function StoryScreen() {
 
         {/* Comic panel */}
         <ScrollView contentContainerStyle={styles.scroll}>
+          {/* Previously... callback */}
+          {story.previously && panelIdx === 0 && (
+            <View style={styles.previouslyBox}>
+              <View style={styles.previouslyHeader}>
+                <MaterialCommunityIcons name="rewind" size={14} color={colors.brandPrimary} />
+                <Text style={styles.previouslyLabel}>◆ PREVIOUSLY ON A.I. UNIT ONE</Text>
+              </View>
+              <Text style={styles.previouslyLine}>{story.previously}</Text>
+            </View>
+          )}
           {/* AI-generated flavor line (replays only) */}
-          {story.flavor_line && (
+          {story.flavor_line ? (
             <View style={styles.flavorBox}>
               <View style={styles.flavorHeader}>
                 <MaterialCommunityIcons name="broadcast" size={14} color={colors.warning} />
@@ -156,7 +171,15 @@ export default function StoryScreen() {
                 </Text>
               ))}
             </View>
-          )}
+          ) : flavorReq ? (
+            <View style={[styles.flavorBox, { opacity: 0.6 }]}>
+              <View style={styles.flavorHeader}>
+                <ActivityIndicator size="small" color={colors.warning} />
+                <Text style={styles.flavorLabel}>◆ INTERCEPTING FIELD INTEL...</Text>
+              </View>
+              <Text style={styles.flavorLine}>A.I. NARRATIVE CORE COMPILING</Text>
+            </View>
+          ) : null}
 
           <Animated.View
             style={[
@@ -206,6 +229,13 @@ export default function StoryScreen() {
                   </View>
                 ))}
               </View>
+            </Animated.View>
+          )}
+
+          {/* Next teaser (last panel only) */}
+          {story.next_teaser && panelIdx === totalPanels - 1 && (
+            <Animated.View style={[styles.teaserBox, { opacity: fadeAnim }]}>
+              <Text style={styles.teaserText}>{story.next_teaser}</Text>
             </Animated.View>
           )}
         </ScrollView>
@@ -279,6 +309,10 @@ const styles = StyleSheet.create({
   titleBlock: {
     paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md,
   },
+  chapterLabel: {
+    fontFamily: fonts.displayBold, color: colors.brandSecondary,
+    fontSize: 10, letterSpacing: 3, marginBottom: 6,
+  },
   opLabel: {
     fontFamily: fonts.displayBold, color: colors.brandPrimary,
     fontSize: 10, letterSpacing: 3, marginBottom: 4,
@@ -292,6 +326,34 @@ const styles = StyleSheet.create({
     width: 60, marginTop: spacing.sm,
   },
   scroll: { padding: spacing.lg, paddingTop: 0 },
+
+  previouslyBox: {
+    borderLeftWidth: 3, borderLeftColor: colors.brandPrimary,
+    paddingLeft: spacing.md, paddingVertical: spacing.sm,
+    marginTop: spacing.md,
+    backgroundColor: "rgba(0,229,255,0.05)",
+  },
+  previouslyHeader: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    marginBottom: 4,
+  },
+  previouslyLabel: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary,
+    fontSize: 10, letterSpacing: 1.5,
+  },
+  previouslyLine: {
+    fontFamily: fonts.body, color: colors.onSurface,
+    fontSize: fontSize.sm, lineHeight: 20, fontStyle: "italic",
+  },
+
+  teaserBox: {
+    marginTop: spacing.lg, borderTopWidth: 1, borderTopColor: colors.brandSecondary,
+    paddingTop: spacing.md,
+  },
+  teaserText: {
+    fontFamily: fonts.displayBold, color: colors.brandSecondary,
+    fontSize: fontSize.sm, letterSpacing: 1, textAlign: "center", lineHeight: 20,
+  },
 
   flavorBox: {
     borderWidth: 1, borderColor: colors.warning,

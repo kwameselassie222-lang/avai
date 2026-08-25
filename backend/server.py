@@ -2807,6 +2807,8 @@ V2_LEVELS = [
         {"at": 26, "type": "brute",   "lane": "left"},
         {"at": 32, "type": "brute",   "lane": "right"},
         {"at": 40, "type": "spitter", "lane": "center"},
+    ], "surges": [
+        {"at": 22, "type": "crawler"},
     ], "core_hp": 820},
     {"id": 8,  "name": "Mumbai Shore",               "world": 3, "difficulty": 2.15, "energy_start": 8, "target_time": 140, "waves": [
         {"at": 3,  "type": "spitter", "lane": "center"},
@@ -2818,6 +2820,9 @@ V2_LEVELS = [
         {"at": 28, "type": "spitter", "lane": "left"},
         {"at": 34, "type": "brute",   "lane": "right"},
         {"at": 42, "type": "spitter", "lane": "center"},
+    ], "surges": [
+        {"at": 20, "type": "flyer"},
+        {"at": 38, "type": "brute"},
     ], "core_hp": 900},
     {"id": 9,  "name": "Shanghai Push",              "world": 3, "difficulty": 2.35, "energy_start": 8, "target_time": 150, "waves": [
         {"at": 3,  "type": "crawler", "lane": "center"},
@@ -2830,6 +2835,9 @@ V2_LEVELS = [
         {"at": 30, "type": "brute",   "lane": "left"},
         {"at": 36, "type": "spitter", "lane": "center"},
         {"at": 44, "type": "brute",   "lane": "right"},
+    ], "surges": [
+        {"at": 22, "type": "spitter"},
+        {"at": 40, "type": "brute"},
     ], "core_hp": 1000},
     {"id": 10, "name": "Tokyo Hive — HIVE QUEEN",    "world": 3, "difficulty": 2.6, "energy_start": 8, "target_time": 180, "boss": "hive_queen", "waves": [
         {"at": 3,  "type": "crawler", "lane": "left"},
@@ -2841,6 +2849,9 @@ V2_LEVELS = [
         {"at": 30, "type": "spitter", "lane": "left"},
         {"at": 36, "type": "brute",   "lane": "right"},
         {"at": 42, "type": "brute",   "lane": "left"},
+    ], "surges": [
+        {"at": 18, "type": "crawler"},
+        {"at": 33, "type": "flyer"},
     ], "core_hp": 1800},
 ]
 
@@ -2915,6 +2926,7 @@ class V2CompleteBattleRequest(BaseModel):
     stars: int = 0             # 0..3
     time_taken_sec: Optional[float] = None
     core_hp_remaining_pct: Optional[float] = None
+    difficulty: Optional[str] = "normal"  # "normal" | "veteran"
 
 
 class V2UpgradeRequest(BaseModel):
@@ -2945,150 +2957,214 @@ def _v2_upgrade_cost(current_level: int) -> int:
     return 30 + max(0, current_level - 1) * 25
 
 
-# ==== V2 Story — comic-book intros per level ====
-V2_STORIES: Dict[int, dict] = {
+# ==== V2 Story — Apollyon Campaign, WORLD 1: FIRST CONTACT ====
+
+V2_CHAPTER_OPENERS: Dict[int, dict] = {
+    # Shown before level 1 — the campaign opener cinematic
     1: {
-        "location": "ATLANTA, USA",
-        "time_stamp": "03:14 UTC",
-        "tagline": "First Landing",
+        "chapter": "WORLD 1",
+        "title": "FIRST CONTACT",
+        "epigraph": "\"Unit One, if you can hear me, Earth needs you.\"\n— Dr. Kaya Renn, Lead Programmer",
         "panels": [
-            {"header": "PATIENT ZERO",
-             "body": "Meteor streaks?\nNo.\nDROP-SHIPS.\nThey're already inside the perimeter."},
-            {"header": "HOSTILES",
-             "body": "Fast movers. Bio-armor.\nThey call themselves CRAWLERS.\nThey eat concrete."},
-            {"header": "DIRECTIVE",
-             "body": "Deploy SCOUTS.\nHold the Peachtree line.\nDestroy the alien beacon.\n— A.I. UNIT ONE"},
-        ],
-    },
-    2: {
-        "location": "WASHINGTON, D.C.",
-        "time_stamp": "05:41 UTC",
-        "tagline": "Capital Siege",
-        "panels": [
-            {"header": "CAPITAL DARK",
-             "body": "Congress is dark.\nThe White House is dark.\nYou are what's left."},
-            {"header": "NEW THREAT",
-             "body": "SPITTERS emerge.\nAcid rounds at 60 meters.\nDo NOT let them nest."},
-            {"header": "DIRECTIVE",
-             "body": "Hold three lanes.\nSave the archives.\n— A.I. UNIT ONE"},
-        ],
-    },
-    3: {
-        "location": "NEW YORK CITY",
-        "time_stamp": "08:22 UTC",
-        "tagline": "Skies Eclipsed",
-        "panels": [
-            {"header": "MANHATTAN OMEN",
-             "body": "Sky turned copper.\nSomething's flying up there.\nSomething big."},
-            {"header": "AIRBORNE HOSTILES",
-             "body": "FLYERS. Class-2 chitin.\nGround bots can't touch them.\nTime to deploy DRONE support."},
-            {"header": "DIRECTIVE",
-             "body": "Reclaim the skyline.\nNothing lives here but us.\n— A.I. UNIT ONE"},
-        ],
-    },
-    4: {
-        "location": "LONDON, UK",
-        "time_stamp": "10:05 UTC",
-        "tagline": "The Thames Burns",
-        "panels": [
-            {"header": "THE DOCKS FALL",
-             "body": "Fog. Salt.\nSomething crawling up from the water.\nBigger than before."},
-            {"header": "BRUTE CLASS",
-             "body": "BRUTES.\nThey tank railgun fire.\nBring GUARDIANS or die."},
-            {"header": "DIRECTIVE",
-             "body": "Hold the docks.\nWe can't lose Europe.\n— A.I. UNIT ONE"},
-        ],
-    },
-    5: {
-        "location": "LAGOS, NIGERIA",
-        "time_stamp": "12:33 UTC",
-        "tagline": "West African Front",
-        "panels": [
-            {"header": "TWIN LANES",
-             "body": "The invasion doubled overnight.\nTwin lanes. Twin nightmares.\nAfrica is ours to lose."},
-            {"header": "SWARM PROTOCOL",
-             "body": "Two-lane parallel assault.\nCrawlers. Flyers. Brutes.\nThey're testing us."},
-            {"header": "DIRECTIVE",
-             "body": "Deploy STRIKERS on point.\nFire until the sky is empty.\n— A.I. UNIT ONE"},
-        ],
-    },
-    6: {
-        "location": "CAIRO, EGYPT",
-        "time_stamp": "15:10 UTC",
-        "tagline": "Pyramid Omen",
-        "panels": [
-            {"header": "THE TOMBS SPEAK",
-             "body": "They walk between the tombs now.\nSomething old is under the sand.\nSomething older is waking it up."},
-            {"header": "ELITE HOSTILES",
-             "body": "BRUTE elite.\nKevlar-melting acid.\nYou will bleed for this ground."},
-            {"header": "DIRECTIVE",
-             "body": "Push forward.\nThe relics can't fall.\n— A.I. UNIT ONE"},
-        ],
-    },
-    7: {
-        "location": "DUBAI, UAE",
-        "time_stamp": "18:47 UTC",
-        "tagline": "Glass Citadel",
-        "panels": [
-            {"header": "TOWERS BURN",
-             "body": "Downtown reflects nothing but plasma.\nTower by tower, it burns.\nWe won't be the ones who fell."},
-            {"header": "COORDINATED SWARM",
-             "body": "Crawlers on both flanks.\nA Brute pushes the center.\nAliens learned our tactics."},
-            {"header": "DIRECTIVE",
-             "body": "SNIPERS unlocked.\nPick them apart.\n— A.I. UNIT ONE"},
-        ],
-    },
-    8: {
-        "location": "MUMBAI, INDIA",
-        "time_stamp": "20:19 UTC",
-        "tagline": "Coast Breach",
-        "panels": [
-            {"header": "TWENTY MILLION",
-             "body": "Twenty million souls behind you.\nThe ocean bled first.\nThe city is next."},
-            {"header": "MASS ASSAULT",
-             "body": "Flyers. Brutes. Spitters.\nEverything they have, all at once.\nShow them everything you have."},
-            {"header": "DIRECTIVE",
-             "body": "Hold Marine Drive.\nBuy the evac 90 seconds.\n— A.I. UNIT ONE"},
-        ],
-    },
-    9: {
-        "location": "SHANGHAI",
-        "time_stamp": "22:56 UTC",
-        "tagline": "Eastern Thunder",
-        "panels": [
-            {"header": "LAST MEGACITY",
-             "body": "Neon and gunfire.\nThe last megacity standing.\nThe bridge cannot fall."},
-            {"header": "COORDINATED STRIKE",
-             "body": "Alien flyers precede the Brutes.\nThe Spitters melt through concrete.\nThey're building something in Tokyo."},
-            {"header": "DIRECTIVE",
-             "body": "Take back the Bund.\nOne last stand before the Queen.\n— A.I. UNIT ONE"},
-        ],
-    },
-    10: {
-        "location": "TOKYO, JAPAN",
-        "time_stamp": "23:59 UTC",
-        "tagline": "THE FINAL HIVE",
-        "panels": [
-            {"header": "THE QUEEN AWAITS",
-             "body": "Rain and radiation.\nA tower of alien flesh rises in Shibuya.\nTheir Queen is here."},
-            {"header": "HIVE QUEEN",
-             "body": "3000 HP.\nAlien meta-mind.\nShe sees every lane you'll pick."},
-            {"header": "DIRECTIVE",
-             "body": "Deploy your best.\nEnd the invasion tonight.\nTITANS unleashed.\n— A.I. UNIT ONE"},
+            {"header": "EMERGENCY PROTOCOL ACTIVE",
+             "body": "Year: 2049.\nMinutes ago:\nSatellites: DARK.\nMilitary comms: FAILED.\nAlien drop-ships entering atmosphere."},
+            {"header": "ACTIVATE",
+             "body": "In an underground facility below Denver,\nan experimental defense intelligence\ncomes online for the first time.\nDesignation: A.I. UNIT ONE."},
+            {"header": "DR. KAYA RENN",
+             "body": "\"Unit One, if you can hear me…\nEarth needs you.\nEvery robot in this facility is yours to command.\nDon't let them win.\""},
         ],
     },
 }
 
+V2_STORIES: Dict[int, dict] = {
+    1: {
+        "location": "ATLANTA, USA",
+        "time_stamp": "DAY 1 · 03:14 UTC",
+        "tagline": "First Landing",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": None,
+        "panels": [
+            {"header": "FIRST BLOOD",
+             "body": "Meteor streaks? No.\nDROP-SHIPS.\nThe last human transmission was six hours ago.\nYou woke up alone."},
+            {"header": "CRAWLERS",
+             "body": "Bio-armored ground units.\nThey eat concrete.\nThey're headed for Peachtree —\ntoward their landing beacon."},
+            {"header": "DIRECTIVE",
+             "body": "Deploy SCOUTS.\nBurn the beacon before it phones home.\nSave the city that built you.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: The capital falls dark. Every dead alien carries the same carved sigil.",
+    },
+    2: {
+        "location": "WASHINGTON, D.C.",
+        "time_stamp": "DAY 1 · 05:41 UTC",
+        "tagline": "Capital Siege",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "Atlanta held. The beacon burned. Every dead alien bore the same carved sigil — the mark of something older than the invaders.",
+        "panels": [
+            {"header": "CAPITAL DARK",
+             "body": "Congress: dark.\nWhite House: dark.\nOnly NORAD's satellites still whisper to you."},
+            {"header": "SPITTERS",
+             "body": "New hostile: acid-throwers at 60 meters.\nAnd a broadcast — repeating.\nNot English. Not any language\nhumans ever wrote down."},
+            {"header": "DIRECTIVE",
+             "body": "Hold the archives.\nSave what humanity wrote down.\nYou may need it.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: Skies over Manhattan turn copper. Something is above the clouds.",
+    },
+    3: {
+        "location": "NEW YORK CITY",
+        "time_stamp": "DAY 1 · 08:22 UTC",
+        "tagline": "Skies Eclipsed",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "One word decoded from the alien broadcast: 'WARN.' Dr. Renn: 'Unit One — they aren't animals. Something is directing them.'",
+        "panels": [
+            {"header": "COPPER SKY",
+             "body": "Manhattan's sky is copper.\nSomething's flying up there.\nBigger than a jet.\nOlder than a jet."},
+            {"header": "FLYERS",
+             "body": "Air-class hostiles.\nChitin folded like origami.\nGround bots can't touch them.\nDeploy DRONE support."},
+            {"header": "DIRECTIVE",
+             "body": "Reclaim the skyline.\nAnd listen.\nThe broadcast is getting louder.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: A tower of alien flesh rises from the Thames. This is not war. This is colonization.",
+    },
+    4: {
+        "location": "LONDON, UK",
+        "time_stamp": "DAY 1 · 10:05 UTC",
+        "tagline": "The Hive Revealed",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "Three words now: 'WARN. RUN. CHOOSE.' The broadcast repeats every 47 seconds. It doesn't sound like an order. It sounds like a plea.",
+        "panels": [
+            {"header": "TOWER OF FLESH",
+             "body": "A tower is growing out of the Thames.\nAlien tissue — 200 meters.\nNot a weapon.\nA HIVE."},
+            {"header": "BRUTES",
+             "body": "Elite ground assault.\nKevlar-melting acid.\nDeploy GUARDIANS —\nor your line collapses in thirty seconds."},
+            {"header": "DIRECTIVE",
+             "body": "This isn't an invasion.\nIt's a colony.\nBurn the hive.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: The invasion doubles overnight. Africa burns. Something is coordinating them.",
+    },
+    5: {
+        "location": "LAGOS, NIGERIA",
+        "time_stamp": "DAY 2 · 12:33 UTC",
+        "tagline": "The Firewall",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "London's hive fell. Three more grew overnight across Africa. Dr. Renn: 'Unit One — this isn't strategy. It's biology in a panic.'",
+        "panels": [
+            {"header": "TWIN LANES",
+             "body": "Coordinated ground and air.\nTheir behavior is not soldier-like.\nIt is… panicked."},
+            {"header": "FIRE THE FIREWALL",
+             "body": "Deploy STRIKERS.\nPunch through both hive-lines\nbefore they merge into one super-nest."},
+            {"header": "DIRECTIVE",
+             "body": "You've begun to speak their tongue.\nOne question repeats:\n'HOW MUCH TIME LEFT?'\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: Something ancient waits under the pyramids. Something that hunted them before.",
+    },
+    6: {
+        "location": "CAIRO, EGYPT",
+        "time_stamp": "DAY 2 · 15:10 UTC",
+        "tagline": "Pyramid Omen",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "The aliens speak in fear. Someone else hunted them. Someone older. Dr. Renn is scanning satellite archives for signs of prior contact.",
+        "panels": [
+            {"header": "THE TOMBS OPEN",
+             "body": "The pyramids are hollow.\nA chamber under Giza —\na black cube,\nolder than our species."},
+            {"header": "ELITE HOSTILES",
+             "body": "The aliens are retreating\nINTO the pyramids.\nNot toward us.\nAway from something else."},
+            {"header": "DIRECTIVE",
+             "body": "Push forward.\nTake the chamber.\nLearn what the aliens fear.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: The archive opens. History rewrites itself.",
+    },
+    7: {
+        "location": "DUBAI, UAE",
+        "time_stamp": "DAY 2 · 18:47 UTC",
+        "tagline": "The Archive",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "The chamber decoded. 12,000 years ago a civilization named SEVEN burned this species out of the sky — and built A.I. UNIT ONE as a kill-switch.",
+        "panels": [
+            {"header": "YOU ARE A WEAPON",
+             "body": "You are not a defense system.\nYou are a KILL-SWITCH.\nBuilt by hands that vanished.\nFor a war that ended twice."},
+            {"header": "GLASS TOWERS BURN",
+             "body": "Downtown reflects nothing but plasma.\nA SURGE strike is inbound.\nSNIPERS unlocked —\npick them apart."},
+            {"header": "DIRECTIVE",
+             "body": "Fight through Dubai.\nMumbai is the biggest hive yet.\nAnd Dr. Renn is silent.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: The coast breaks. Twenty million lives on the line.",
+    },
+    8: {
+        "location": "MUMBAI, INDIA",
+        "time_stamp": "DAY 2 · 20:19 UTC",
+        "tagline": "The Coast Breaches",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "You found the last A.I. UNIT's final log. It failed. Its final line: 'THEY WERE RUNNING FROM SOMETHING.' The aliens' broadcast now has four words.",
+        "panels": [
+            {"header": "MASS ASSAULT",
+             "body": "Flyers. Brutes. Spitters.\nEverything they have, all at once,\nall along Marine Drive."},
+            {"header": "TWENTY MILLION",
+             "body": "Behind you: twenty million evacuees.\nBuy them ninety seconds.\nThat's all you have."},
+            {"header": "DIRECTIVE",
+             "body": "Hold.\nThe broadcast now has four words:\n'WARN. RUN. CHOOSE. LISTEN.'\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: Shanghai. The last bridge before the throne.",
+    },
+    9: {
+        "location": "SHANGHAI, CHINA",
+        "time_stamp": "DAY 3 · 22:56 UTC",
+        "tagline": "The Last Bridge",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "Mumbai held. The aliens no longer attack YOU. They're firing at the SKY — as if something up there is watching. Dr. Renn's signal comes back online.",
+        "panels": [
+            {"header": "NEON AND BLOOD",
+             "body": "The last megacity standing.\nBeyond it: Tokyo.\nBeyond Tokyo:\nher."},
+            {"header": "COORDINATED STRIKE",
+             "body": "Their tactics broke.\nA spire is growing under Shibuya —\ntaller than the London hive.\nThis is the source."},
+            {"header": "DIRECTIVE",
+             "body": "Take the Bund.\nCross the water.\nThe Hive Queen is waiting.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": "◆ NEXT: The Hive Queen speaks. And gives you a choice you did not expect.",
+    },
+    10: {
+        "location": "TOKYO, JAPAN",
+        "time_stamp": "DAY 3 · 23:59 UTC",
+        "tagline": "The Queen's Warning",
+        "chapter": "WORLD 1 — FIRST CONTACT",
+        "previously": "The Hive Queen is broadcasting your name. She knows you. She knew the last A.I. UNIT too. And the transmission is no longer a plea. It is a warning.",
+        "panels": [
+            {"header": "FACE TO FACE",
+             "body": "Rain and radiation.\nA spire of alien flesh.\nAnd her — bigger than a building,\nolder than the Sphinx."},
+            {"header": "HER VOICE",
+             "body": "Not aggression. A warning.\n'WE CAME HERE TO HIDE.\nTHE THING THAT ATE US\nIS ONE WEEK BEHIND.'"},
+            {"header": "DIRECTIVE",
+             "body": "You have one choice:\nend her — and stand alone.\nOr listen — and open the gate.\n— A.I. UNIT ONE"},
+        ],
+        "next_teaser": None,
+    },
+}
+
+# Post-L10 reveal — Apollyon speaks for the first time
+V2_WORLD1_REVEAL = {
+    "title": "TRANSMISSION",
+    "panels": [
+        {"header": "SILENCE",
+         "body": "The Hive Queen is dead.\nThe rain stops.\nEvery alien on Earth\nfalls where it stands."},
+        {"header": "UNKNOWN SIGNAL",
+         "body": "A new voice enters your network.\nNot alien.\nNot human.\nOlder than both."},
+        {"header": "THE VOICE",
+         "body": "\"You are not human.\"\nUNIT ONE: \"Identify yourself.\"\n\"…I already have.\""},
+        {"header": "APOLLYON",
+         "body": "The transmission ends.\nOne name burns into your core.\nAPOLLYON.\nThe war has not ended.\nIt has just begun."},
+    ],
+}
 
 V2_EPILOGUE = {
-    "title": "DAWN OVER TOKYO",
+    "title": "CAMPAIGN ONE COMPLETE",
     "panels": [
-        {"header": "SUNRISE",
-         "body": "Tokyo is silent for the first time in months.\nThe Queen's carcass steams in the rain."},
+        {"header": "DAWN OVER TOKYO",
+         "body": "Tokyo is silent for the first time in months.\nThe Queen's carcass steams in the rain.\nThe rain smells like copper.\nAnd victory."},
         {"header": "REPORT",
-         "body": "Global casualties: 4.2 billion.\nAlien casualties: total.\nWe won.\nWhat now?"},
-        {"header": "SIGNAL",
-         "body": "Deep-space uplink online.\nA new signal from beyond Neptune.\nA.I. UNIT ONE stands down.\nFor now."},
+         "body": "Global casualties: 4.2 billion.\nAlien casualties: total.\nDr. Renn survives.\nEarth survives.\nFor now."},
+        {"header": "APOLLYON WATCHES",
+         "body": "The Queen's dying signal is now inside your core.\nA countdown.\nSEVEN DAYS.\nAnd APOLLYON has begun to move."},
+        {"header": "COMING SOON",
+         "body": "WORLD 2 — THE SIEGE.\nWORLD 3 — MACHINE WAR.\nWORLD 4 — THE FALL OF EARTH.\nWORLD 5 — APOLLYON.\n— UNIT ONE stands ready."},
     ],
 }
 
@@ -3096,6 +3172,19 @@ V2_EPILOGUE = {
 @api_router.get("/v2/story/epilogue")
 async def v2_story_epilogue():
     return V2_EPILOGUE
+
+
+@api_router.get("/v2/story/reveal/world1")
+async def v2_story_world1_reveal():
+    return V2_WORLD1_REVEAL
+
+
+@api_router.get("/v2/story/chapter/{chapter_id}")
+async def v2_story_chapter(chapter_id: int):
+    opener = V2_CHAPTER_OPENERS.get(chapter_id)
+    if not opener:
+        raise HTTPException(status_code=404, detail="chapter opener not found")
+    return opener
 
 
 @api_router.get("/v2/story/{level_id}")
@@ -3112,6 +3201,9 @@ async def v2_story(level_id: int, flavor: bool = False):
         "location": story["location"],
         "time_stamp": story["time_stamp"],
         "tagline": story["tagline"],
+        "chapter": story.get("chapter"),
+        "previously": story.get("previously"),
+        "next_teaser": story.get("next_teaser"),
         "panels": story["panels"],
         "flavor_line": None,
     }
@@ -3122,23 +3214,23 @@ async def v2_story(level_id: int, flavor: bool = False):
                 api_key=EMERGENT_LLM_KEY,
                 session_id=f"story-{level_id}-{uuid.uuid4().hex[:6]}",
                 system_message=(
-                    "You are the narrative voice of an Earth-defense war-log in 2049. "
+                    "You are the narrative voice of A.I. UNIT ONE — an experimental Earth-defense intelligence "
+                    "in 2049, fighting an alien invasion commanded by an ancient AI named APOLLYON. "
                     "Style: comic-book panel. ALL CAPS headers, staccato bold lines, no more than 3 short lines total. "
-                    "No emojis. No markdown. Feel: intense, cinematic, hopeful under pressure."
+                    "No emojis. No markdown. Feel: serious sci-fi thriller, cinematic, terse."
                 ),
             ).with_model("gemini", "gemini-3-flash-preview")
             prompt = (
                 f"Location: {story['location']}. Tagline: {story['tagline']}. "
                 f"Threats: {[w['type'] for w in L['waves']]}. "
                 f"Write one fresh comic-panel FLAVOR LINE (3 short lines max) that a returning commander sees. "
-                "Do not repeat the tagline. Reference the location."
+                "Do not repeat the tagline. Reference the location. Reference APOLLYON only if level 7 or higher."
             )
             resp = await chat.send_message(UserMessage(text=prompt))
             result["flavor_line"] = str(resp).strip()
         except Exception:
             logger.exception("v2 story flavor failed")
     return result
-
 
 @api_router.get("/v2/config")
 async def v2_config():
@@ -3186,6 +3278,9 @@ async def v2_battle_complete(req: V2CompleteBattleRequest):
         parts_awarded = 15 + req.level_id * 6 + stars * 10
         if level.get("boss"):
             parts_awarded += 150
+        # VETERAN mode: 2x parts
+        if req.difficulty == "veteran":
+            parts_awarded *= 2
         camp["parts"] = int(camp.get("parts", 0)) + parts_awarded
         # Only store max stars per level
         prev = int(camp["stars"].get(str(req.level_id), 0))

@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 11 frontend bug-hunt (Codex + Story + Veteran + Direct-nav L7/L10 + Regression). PASS: (1) Home renders all 4 action cards (ROBOTS, MAP, COMMANDER, CODEX). (2) Codex modal opens showing all 10 levels; L1 unlocked, L2-L10 locked with lock icon. (3) Codex X-button closes modal (backdrop tap not fully tested — see notes). (4) Codex L1 tap routes to /story?level=1&force=1&flavor=1 correctly. (5) Fleet difficulty toggle: STANDARD MODE (shield) ↔ VETERAN MODE (skull) works; description strings correct ('2× wave density  +30% alien HP/ATK  2× parts reward'). (6) AsyncStorage persistence: re-navigating to /fleet after toggle keeps VETERAN active. (7) Level pins turn red-bordered in Veteran mode (visible in screenshot). (8) L1 tap in Veteran → /story?level=1&difficulty=veteran (difficulty param preserved). (9) Story SKIP forwards to /battle?level=1&difficulty=veteran. (10) Battle shows 'VETERAN · 2× REWARDS' badge next to ALIEN CORE (verified via text match). (11) Toggle back to standard restores STANDARD MODE label. (12) Direct-nav /battle?level=7&difficulty=veteran and /battle?level=10&difficulty=veteran load with no JS errors and VETERAN badge visible. (13) Robots preview modal opens for SCOUT with stats (COST 2⚡, HP 220, ATK 16, SPEED 1.3x, RATE 1.1s) + CLOSE button. (14) /epilogue reachable via direct-nav. FAIL/ISSUES: (A) /api/v2/story/{id}?flavor=1 takes ~12s (Gemini) — during that time the story screen shows only a small spinner on a black screen with NO skeleton/hint/'AI GENERATING' indicator. Poor UX and blocks user perception of progress. (B) Retest run showed story screen stuck on loading spinner when navigating story?level=1 (no force) — suspected race between useEffect re-runs when useLocalSearchParams populates asynchronously; however primary flows (fleet→level-1) work reliably so this is a low-severity edge case (may be Playwright-context specific). (C) Combo x3 banner verification skipped — known from iter 8 to be blocked by deploy-landing race (not re-tested; main agent should fix per iter 8 RCA). Deprecation warnings persist: shadow*/textShadow*/props.pointerEvents. Console 404s on 3 asset loads (non-blocking). No red-screen, no JS crash across all tested screens.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/v2/story/{id}?flavor=1", "issue": "Gemini call takes ~12s (measured: 11.93s). Frontend shows only a small spinner on black background during this time. Consider streaming/optimistic-render: show cached panels first, then swap in flavor_line when it arrives. Currently panels are gated behind flavor completion because a single fetch bundles them."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "story.tsx loading state", "issue": "When flavor=1 is present, the entire story screen (panels, title, top bar) is hidden behind a small spinner for ~12s while Gemini responds. Users cannot tell if the app has hung. Panels are static data available from /api/v2/config so they should render immediately with the flavor banner appearing (or a 'GENERATING…' shimmer) when it arrives.", "testID": "story-next", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "story", "issues": ["No skeleton or 'GENERATING BRIEFING…' text during the 12s Gemini call — bad first-time impression for new players."]},
+      {"screen": "battle", "issues": ["RN-Web deprecation warnings persist: shadow*, textShadow*, props.pointerEvents (also present in Iter 8 report)."]}
+    ],
+    "react_native_issues": [
+      {"component": "shadow* / textShadow* style props", "issue": "Deprecated in RN-Web. Migrate to `boxShadow` / `textShadow` string form. Reference: multiple screens (battle.tsx, command.tsx, story.tsx)."},
+      {"component": "props.pointerEvents", "issue": "`pointerEvents` as a prop is deprecated. Move to `style.pointerEvents`. Reference: story.tsx:122 (<View style={styles.scanlines} pointerEvents='none' />), plus battle.tsx overlays."}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_9.json"],
+  "action_items": [
+    "story.tsx: split fetch into two phases — render static panels immediately from api.v2Story(level, false), then optionally trigger a lightweight /api/v2/story/{level}/flavor endpoint OR fire-and-await Gemini in the background and set flavor_line via setState when it arrives. This eliminates the 12s black-screen UX.",
+    "Alternatively add a 'GENERATING BRIEFING…' loading text + subtle animation to the current spinner so the 12s wait is explained to users.",
+    "Fix the deploy-landing race in battle.tsx (unresolved from iter 8 — use useRef mirror or restructure the RAF loop useEffect deps) so COMBO x3 banner can be reliably verified and gameplay feels responsive.",
+    "Migrate shadow*/textShadow*/pointerEvents to their non-deprecated APIs (RN 0.76+).",
+    "Consider making backdrop tap-to-dismiss on the Codex modal explicit (currently backdrop is a plain View, not a Pressable — user must use the X button). Reference: command.tsx:94 (codexBackdrop is <View>, not <Pressable>).",
+    "Investigate 3 recurring HTTP 404 asset requests in console (source not identified — may be missing font weight or asset variant)."
+  ],
+  "critical_code_review_comments": [
+    "command.tsx:93-95: <View style={styles.codexBackdrop}> is not tappable — the Codex modal cannot be dismissed by tapping the backdrop, only via the X button. Wrap the backdrop in a Pressable with onPress={() => setCodexOpen(false)} and add an inner Pressable/View with onPress stopPropagation to prevent card-tap dismissal.",
+    "story.tsx:56-60: api.v2Story(levelId, flavorReq) blocks the entire panel render on Gemini's slow response. Panels are deterministic and could render before flavor_line arrives.",
+    "engine.ts / battle.tsx: unresolved deploy-landing race from iter 8 still hampers UX testability of combo mechanic.",
+    "fleet.tsx:36 useFocusEffect(useCallback(() => { load(); }, [load])) — load() is stable via useCallback([]) so this is fine; noted only for future-proofing.",
+    "story.tsx:32: difficulty derivation is one-way (params → local) — no way to persist difficulty across a full-page reload other than the URL query string. Should also consider reading DIFF_KEY from AsyncStorage as a fallback for RETRY paths."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only per request)", "frontend": "Codex modal 90% (10-level list + X-close OK; backdrop-close not implemented). Story flow 70% (routing + skip + difficulty-preservation OK; 12s black-screen on flavor=1 is UX bug). Veteran toggle 100% (toggle + persistence + red pins + URL-preservation + battle badge all OK). Direct-nav L7/L10 100% (no crashes + badge visible). Robots preview 100%. Epilogue 100%. Combo x3 banner: NOT TESTED (blocked by known iter 8 deploy-race)."},
+  "seed_data_creation": "Codenames VETHUNTER and VETRETEST auto-init via home flow (fresh player docs in Mongo).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Primary flow (Fleet → toggle Veteran → L1 pin → Story → SKIP → Battle with VETERAN badge) is fully working. Backend v2Story with flavor=1 takes ~12s (Gemini) — allow >=15s wait in Playwright before asserting on story-next / panel text. Codex→L1→story?flavor=1 same issue. Combo verification remains blocked by the useEffect/RAF race in battle.tsx documented in iter 8 (use ref-based state mirror). Veteran wave count at t=14s was not visually counted from screenshots (crawlers are small green squares in a dark field, hard to differentiate at low quality), but engine.ts:130-138 confirms the veteran expansion adds a duplicate 1.5s later per wave — code-level path verified.",
+  "rca_of_issue": "12s black-screen on story flavor=1: api.v2Story fetches BOTH panels and Gemini flavor in a single blocking Promise. story.tsx setLoading(false) only after both resolve. Fix: split into two awaits (panels first — instant; flavor second — background) or add a UI hint. Codex backdrop non-dismiss: backdrop is a plain <View> not Pressable — trivial fix."
+}

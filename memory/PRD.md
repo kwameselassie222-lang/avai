@@ -368,3 +368,65 @@ Crawler, Spitter, Brute, Flyer, HIVE QUEEN (L10)
   - 10 magenta particles burst
   - "CRAWLER SWARM SUMMONED" event log entry per swarm
 - L10 core HP bumped 1600 → 1800 to accommodate longer phased fight
+
+## Iteration 14 — VETERAN Toggle + Surge Waves (June 2026)
+
+### VETERAN Difficulty Toggle (Map)
+- Big top-of-map card toggling between **STANDARD** (cyan, shield icon) and **VETERAN** (red, skull icon)
+- Persisted client-side in AsyncStorage (`aliens_vai_difficulty`)
+- Attach `?difficulty=veteran` to /story and /battle routes when active
+- Level borders and numbered circles turn red in veteran mode for visual state
+- Battle screen shows a **VETERAN · 2× REWARDS** badge next to Alien Core HP
+
+### VETERAN Mechanics (engine)
+- Each wave is **duplicated** 1.5s later in an adjacent lane → 2× density
+- Alien HP + ATK scaled by **+30%** on spawn (via state.difficulty flag)
+- Backend `/v2/battle/complete` accepts `difficulty` param and **doubles parts_awarded** when veteran
+
+### Surge Waves (L7+)
+- New optional `surges: [{at, type}]` array per level in V2_LEVELS
+- L7 → 1 surge (crawler at 22s)
+- L8 → 2 surges (flyer 20s, brute 38s)
+- L9 → 2 surges (spitter 22s, brute 40s)
+- L10 → 2 surges (crawler 18s, flyer 33s)
+- On surge time: spawn one alien of same type in **all 3 lanes simultaneously**
+- Golden "⚠ SURGE INCOMING — ALL LANES" banner fades over 1.6s
+- `boss.wav` sound cue + heavy screen shake to underline the moment
+- Levels with surges show "⚡ SURGES" tag in the Map meta line
+
+## Iteration 15 — Story Overhaul (Apollyon Campaign) — June 2026
+
+### Story Always Shows
+- Removed "skip on seen" auto-forward in /story
+- Every level-tap on Map now shows the intro; SKIP button remains for hurry
+- L1 first-visit routes through a Chapter Opener before the story
+
+### Narrative Rewrite (World 1: FIRST CONTACT)
+- All 10 L1-L10 rewritten with continuous serious-sci-fi thriller arc:
+  - CH 1 (L1-L4) LANDING: aliens invade → discover it's a colony → burn hive
+  - CH 2 (L5-L8) TRUTH: ancient tech under pyramids → UNIT ONE is a KILL-SWITCH → aliens were RUNNING FROM SOMETHING
+  - CH 3 (L9-L10) CHOICE: Hive Queen speaks — reveals a worse threat is 7 days behind
+- Each level story now carries: CHAPTER tag, PREVIOUSLY... callback, NEXT teaser
+- Dr. Kaya Renn is the recurring human voice
+
+### Chapter Opener (`/interlude?kind=chapter&id=1`)
+- Full-screen intro slide for World 1: title + epigraph quote + 3 panels (EMERGENCY PROTOCOL ACTIVE, ACTIVATE, DR. KAYA RENN)
+- BEGIN OPERATION button routes to `/story?level=1`
+- Marked seen in AsyncStorage (`aliens_vai_seen_chapter_1`)
+
+### APOLLYON Reveal (`/interlude?kind=reveal&id=world1`)
+- L10 Hive Queen victory now routes here BEFORE epilogue
+- 4-panel Apollyon transmission: SILENCE, UNKNOWN SIGNAL, THE VOICE, APOLLYON
+- Red-tinted background, boss SFX, warning haptic
+- CONTINUE routes to /epilogue
+
+### Epilogue Updated
+- Now teases Worlds 2-5 coming next: THE SIEGE, MACHINE WAR, FALL OF EARTH, APOLLYON
+- Queen's dying signal is now inside UNIT ONE's core — 7-day countdown
+
+### Backend
+- New endpoints:
+  - `GET /api/v2/story/chapter/{id}` — chapter opener content
+  - `GET /api/v2/story/reveal/{id}` — reveal cinematic (currently `world1`)
+- Updated `GET /api/v2/story/{level_id}` to include `chapter`, `previously`, `next_teaser` fields
+- Gemini system prompt updated for serious-sci-fi + Apollyon lore aware (references only from L7+)

@@ -1,0 +1,34 @@
+{
+  "summary": "Story Overhaul (Apollyon Campaign) verified end-to-end. All 5 primary user-facing fixes work: (1) Story always shows on Map taps (no auto-skip), (2) L1 first-visit routes through /interlude?kind=chapter&id=1 with WORLD 1 / FIRST CONTACT / Kaya Renn epigraph + 3 panels (EMERGENCY PROTOCOL ACTIVE / ACTIVATE / DR. KAYA RENN) and BEGIN OPERATION forwards to /story?level=1, (3) Story L1 renders CHAPTER tag 'WORLD 1 — FIRST CONTACT', OPERATION 01, FIRST LANDING title, panel 1 FIRST BLOOD, threat chip CRAWLER on last panel, and NEXT teaser '◆ NEXT: The capital falls dark...', (4) Direct nav /interlude?kind=reveal&id=world1 renders APOLLYON TRANSMISSION / TRANSMISSION with SILENCE panel (1/4) and red-tint gradient, (5) Direct nav /epilogue renders CAMPAIGN ONE COMPLETE with panel 1 DAWN OVER TOKYO (worlds 2-5 teaser confirmed in backend payload for panel 4). Re-visit of L1 correctly skips chapter opener but STILL shows the story (primary user bug is fixed). Backend endpoints /api/v2/story/chapter/1, /api/v2/story/1, /api/v2/story/reveal/world1, /api/v2/story/epilogue all return 200 with correct payloads.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "interlude / story / global", "issues": [
+        "React Native web deprecation warnings: 'shadow*' style props deprecated (use boxShadow), 'textShadow*' style props deprecated (use textShadow), 'props.pointerEvents' deprecated (use style.pointerEvents). Non-blocking but noisy in console.",
+        "3x 404s on some static resources at page load (likely favicon or fonts) — cosmetic."
+      ]}
+    ],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_11.json"],
+  "action_items": [
+    "OPTIONAL cleanup: migrate shadow*/textShadow*/pointerEvents props to their new style equivalents to silence RN Web deprecation warnings.",
+    "OPTIONAL: investigate the 3x 404 static-resource requests on load."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 3395 lines — recommend splitting into modules (auth/players, robots, defense, v2 story, apollyon) for maintainability. Not blocking.",
+    "interlude.tsx correctly gates chapter-seen marker via AsyncStorage; fleet.tsx correctly routes L1 first-time via /interlude, then /story."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Used codename APOLLYON1 (auto-init via /api/player/init).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All Story Overhaul flows validated. Primary user bug ('story auto-skips after visit') is confirmed FIXED — story.tsx no longer reads seen-intro marker on load, always renders full comic-panel intro. Chapter opener is one-time-only (correct). Reveal red-tint + boss SFX intent code present. Epilogue text mismatch: backend title is 'CAMPAIGN ONE COMPLETE' and frontend UI shows the same text plus a static subtitle 'CAMPAIGN COMPLETE' — matches spec.",
+  "rca_of_issue": "Original bug: story.tsx early-returned/skipped to battle if AsyncStorage seen-intro marker was set. Fix: story.tsx now always fetches and renders story panels; the seen-intro marker is only written on DEPLOY (not read on mount). Verified via localStorage inspection + revisit flow: after first visit, revisiting L1 goes directly to /story (bypassing chapter opener which uses a separate 'aliens_vai_seen_chapter_1' key) and still displays the full 3-panel comic intro."
+}

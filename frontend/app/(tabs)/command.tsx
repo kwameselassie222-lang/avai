@@ -91,8 +91,8 @@ export default function HomeScreen() {
 
       {/* CODEX Modal */}
       <Modal transparent animationType="fade" visible={codexOpen} onRequestClose={() => setCodexOpen(false)}>
-        <View style={styles.codexBackdrop}>
-          <View style={styles.codexCard}>
+        <Pressable style={styles.codexBackdrop} onPress={() => setCodexOpen(false)} testID="codex-backdrop">
+          <Pressable style={styles.codexCard} onPress={() => {}}>
             <View style={styles.codexHeader}>
               <MaterialCommunityIcons name="book-open-page-variant" size={26} color="#B57BFF" />
               <View style={{ flex: 1, marginLeft: spacing.sm }}>
@@ -155,8 +155,8 @@ export default function HomeScreen() {
                 );
               })}
             </ScrollView>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
