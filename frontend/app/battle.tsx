@@ -608,10 +608,21 @@ export default function BattleScreen() {
       {/* Bottom HUD */}
       <View style={styles.bottomHud}>
         <View style={styles.hpWrap}>
-          <View style={styles.hpBar}>
-            <View style={[styles.hpFill, { width: `${(state.earth_hp / state.earth_max_hp) * 100}%`, backgroundColor: colors.success }]} />
-          </View>
-          <Text style={styles.hpLabelBottom}>EARTH CORE</Text>
+          {(() => {
+            const pct = (state.earth_hp / state.earth_max_hp) * 100;
+            const flashAge = state.time - (state.earth_hp_flash_at || -999);
+            const flashing = flashAge >= 0 && flashAge < 0.18;
+            const low = pct < 25;
+            return (
+              <View style={styles.hpBar}>
+                <View style={[styles.hpFill, {
+                  width: `${pct}%`,
+                  backgroundColor: low ? "#FF3366" : flashing ? "#FFFFFF" : colors.success,
+                }]} />
+              </View>
+            );
+          })()}
+          <Text style={styles.hpLabelBottom}>EARTH STAMINA · {Math.round(state.earth_hp)}/{state.earth_max_hp}</Text>
         </View>
 
         <View style={styles.energyRow}>

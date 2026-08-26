@@ -651,3 +651,22 @@ Follow-up: user reported the power bar still wasn't visibly draining.
 5. **State telemetry**: added `energy_flash_at` and `energy_shots_fired` for future analytics + fx.
 
 ### Verified via screenshot: L1 test playthrough hit 0/12 at ~52s with all bots idle-jamming; new session starts at 11/12 (after 2⚡ scout deploy) with a visibly partial bar.
+
+## Iteration 19 (Boxing Stamina Model — Green Bar Fix) — 2026-06
+Follow-up: user clarified they meant the GREEN Earth Core bar should behave like a boxer's stamina — drops on both throwing punches AND getting hit, slowly recovers between exchanges. Yellow energy bar was over-tightened → restored to a light tax.
+
+### Green Bar → EARTH STAMINA (boxing model)
+- Renamed label from "EARTH CORE" → **EARTH STAMINA · 489/500**.
+- Every **player robot shot** costs **1.5 HP** from the green bar (EARTH_ATTACK_TAX).
+- Every **alien hit on the core** still drains HP (dmg + a random resource) — unchanged mechanic.
+- Between hits, stamina slowly regenerates at **0.9 HP/sec** (EARTH_REGEN_PER_SEC) — the "between-round breather".
+- Green bar now flashes white on every drain (either direction) and turns red below 25%.
+
+### Yellow Energy Bar — Un-handicapped
+Reverted the aggressive tuning from Iteration 18:
+- **ATTACK_ENERGY_DRAIN**: 1.0 → **0.15** (light tactical tax again)
+- **ENERGY_REGEN_PER_SEC**: 0.35 → **0.75** (fast enough to sustain multi-robot deploys)
+- Bar still fully visible + flashes on drain + still hard-blocks at zero.
+
+### Result
+Verified in-app (screenshot on L1): after several player attacks, Earth Stamina at 489/500, energy at 12/12. Playing 45 seconds of L5 defeat: green bar visibly drains from both attacking and getting hit while energy stays comfortable.
