@@ -596,3 +596,58 @@ Classic Contra/Metroid mechanic. Hive Queen has a periodic vulnerable state:
 - `stopVoice()` — pauses current audio.
 - `loadMutePref()` / `isVoiceMuted()` / `setVoiceMuted(bool)` — hydrated mute preference API.
 - `subscribeMute(cb)` — components subscribe for instant UI sync when toggled.
+
+## Iteration 17 (Ambient Music + Resource Recap + Energy Fix) — 2026-06
+
+### Music: Atmospheric Drone Loop
+- Replaced the annoying repetitive melody with a 12-second seamless drone loop.
+- Composed procedurally in Python: sub-bass (55Hz) + two detuned pads (110/165Hz) with slow LFO tremolo + occasional gated shimmer (660Hz).
+- Volume lowered from 0.35 → 0.18. Feels like tension, not muzak.
+
+### Energy — Now Actually Visible
+Previous tuning had energy always regenerating faster than it drained → bar looked static.
+- **ENERGY_REGEN_PER_SEC**: 0.9 → **0.55**
+- **ATTACK_ENERGY_DRAIN**: 0.08 → **0.32** per shot
+- Result: 2-3 firing robots consume energy faster than it regens, forcing tactical trade-offs.
+
+### Alien Burst Cadence (Two-sided Energy Feel)
+- Non-boss aliens now fire in 4-shot bursts, then take a **~1.6 second reload pause**.
+- Bosses continue firing normally (they have their own reload window via the retro combo mechanic).
+- Feels like both sides are "spending energy" between volleys.
+
+### Resource Pain Economy — Narrative Reframe
+- Top strip now has header: **🛡 PROTECTING EARTH RESOURCES · CIVILIANS**.
+- Each resource is tied to a real mining site + population factor:
+  - COBALT → Kolwezi mines (400 people/unit)
+  - NICKEL → Norilsk refinery (280 people/unit)
+  - IRON → Pilbara works (520 people/unit)
+  - GOLD → Witwatersrand reserve (340 people/unit)
+- Aliens are strip-mining Earth to fuel the invasion. Every resource unit lost = citizens displaced.
+
+### Post-Battle Resource Recap (Victory & Defeat)
+New block appears on the outcome overlay:
+- Per-resource bar: how much SAVED (color) vs LOST (red -N).
+- Two big counters: **PROTECTED** (protected civilians = remaining resources × people factor) vs **DISPLACED** (civilian toll accumulated during battle).
+- Italic footnote reframes result:
+  - Perfect victory: "Perfect defense. Every mine and refinery still runs. Cities intact."
+  - Partial victory: "You held. X% of Earth's reserves saved from strip-mining."
+  - Defeat: "The aliens broke through and are extracting resources from ruined cities."
+- Overlay content now wraps in a ScrollView so long battles don't clip.
+
+## Iteration 18 (Energy Bar Fully Fixed) — 2026-06
+Follow-up: user reported the power bar still wasn't visibly draining.
+
+### Root cause
+- Previous tuning had drain 0.32/shot vs regen 0.55/sec. For a single robot firing at 1 shot/sec, net was +0.23/sec — bar never dropped.
+- Display was text-only ("8/12") with no visible bar, making changes even harder to notice.
+
+### Fix
+1. **Aggressive drain**: `ATTACK_ENERGY_DRAIN` 0.32 → **1.0 per shot**.
+2. **Slow regen**: `ENERGY_REGEN_PER_SEC` 0.55 → **0.35/sec**.
+   - Single robot at 1shot/sec: net **-0.65/sec** — bar noticeably drains.
+   - Three robots firing: net **-2.65/sec** — bar empties in 4-5 seconds.
+3. **Zero-energy hard block**: `if (state.energy < ATTACK_ENERGY_DRAIN) { continue; }` — robots physically cannot fire at 0 energy. Verified in-app: bar hit 0 and further attacks stopped.
+4. **Visible energy bar** — added a proper yellow gradient bar in the bottom HUD next to the numeric readout. Bar goes red below 3 energy, flashes white on each drain, shrinks visibly with every shot.
+5. **State telemetry**: added `energy_flash_at` and `energy_shots_fired` for future analytics + fx.
+
+### Verified via screenshot: L1 test playthrough hit 0/12 at ~52s with all bots idle-jamming; new session starts at 11/12 (after 2⚡ scout deploy) with a visibly partial bar.

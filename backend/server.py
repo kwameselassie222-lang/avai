@@ -2873,6 +2873,15 @@ V2_ROBOTS = [
      "flavor": "Heavy ground unit. Slow but very tough."},
     {"id": "titan",    "name": "TITAN",     "cost": 7, "hp": 1500, "atk": 50, "speed": 0.5, "range": 24, "atk_rate": 0.7, "kind": "ground", "unlock_level": 9,
      "flavor": "Massive heavy combat robot. Expensive."},
+    # ==== World 2+ unlocks ====
+    {"id": "rocket_bot","name": "ROCKET BOT","cost": 5, "hp": 380, "atk": 42, "speed": 0.75, "range": 70, "atk_rate": 1.1, "kind": "ground", "unlock_level": 12,
+     "flavor": "Explosive projectiles. Great vs armored & bunched swarms."},
+    {"id": "repair_bot","name": "REPAIR BOT","cost": 4, "hp": 320, "atk": 6,  "speed": 0.8,  "range": 30, "atk_rate": 1.4, "kind": "ground", "unlock_level": 15,
+     "flavor": "Support unit. Auto-repairs nearby friendly robots."},
+    {"id": "emp_bot",  "name": "EMP BOT",   "cost": 5, "hp": 260, "atk": 12, "speed": 0.85, "range": 55, "atk_rate": 0.9, "kind": "ground", "unlock_level": 22,
+     "flavor": "Chain-stun projectiles. Disables machine hostiles."},
+    {"id": "apex",     "name": "APEX FRAME","cost": 9, "hp": 2200,"atk": 78, "speed": 0.45, "range": 30, "atk_rate": 0.6, "kind": "ground", "unlock_level": 32,
+     "flavor": "Prototype exo-frame. Slow but devastating. Endgame armor."},
 ]
 
 V2_ALIENS = [
@@ -2881,6 +2890,16 @@ V2_ALIENS = [
     {"id": "brute",   "name": "Brute",   "hp": 320, "atk": 22, "speed": 0.7, "range": 18, "atk_rate": 0.8, "kind": "ground", "reward": 8},
     {"id": "flyer",   "name": "Flyer",   "hp": 110, "atk": 12, "speed": 1.2, "range": 24, "atk_rate": 1.0, "kind": "air",    "reward": 5},
     {"id": "hive_queen", "name": "HIVE QUEEN", "hp": 3000, "atk": 60, "speed": 0.35, "range": 30, "atk_rate": 0.6, "kind": "ground", "reward": 200, "boss": True},
+    # ==== World 2+ hostiles ====
+    {"id": "burrower","name": "Burrower","hp": 260, "atk": 18, "speed": 0.95,"range": 20, "atk_rate": 0.9, "kind": "ground", "reward": 10},
+    {"id": "hunter",  "name": "Hunter",  "hp": 150, "atk": 26, "speed": 1.35,"range": 40, "atk_rate": 1.1, "kind": "ground", "reward": 12},
+    {"id": "bomber",  "name": "Bomber",  "hp": 130, "atk": 40, "speed": 1.0, "range": 20, "atk_rate": 0.8, "kind": "air",    "reward": 12},
+    {"id": "harvester","name":"Harvester","hp": 200, "atk": 16, "speed": 0.85,"range": 20, "atk_rate": 0.9, "kind": "ground", "reward": 14},
+    # ==== Bosses (Worlds 2-5) ====
+    {"id": "reaper",     "name": "REAPER GESTALT","hp": 4200,"atk": 72,"speed": 0.4, "range": 30,"atk_rate": 0.65,"kind": "ground","reward": 300,"boss": True},
+    {"id": "archon",     "name": "ARCHON PRIME",  "hp": 5400,"atk": 82,"speed": 0.45,"range": 34,"atk_rate": 0.6, "kind": "ground","reward": 400,"boss": True},
+    {"id": "grave_maker","name": "GRAVE-MAKER",   "hp": 6800,"atk": 95,"speed": 0.4, "range": 36,"atk_rate": 0.55,"kind": "ground","reward": 500,"boss": True},
+    {"id": "apollyon",   "name": "APOLLYON",      "hp": 9000,"atk": 110,"speed": 0.42,"range": 40,"atk_rate": 0.5, "kind": "ground","reward": 999,"boss": True},
 ]
 
 V2_COMMANDER_ABILITIES = [

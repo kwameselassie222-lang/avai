@@ -34,6 +34,8 @@ export type Entity = {
   split_on_death?: string;   // type to spawn 2 of on death
   resurrect_chance?: number; // 0..1 revive chance once
   resurrected?: boolean;
+  // ==== Alien burst cadence (retro "reload") ====
+  shots_fired?: number;      // count since last pause
 };
 
 // ==== Chess-mode categories & matchups ====
@@ -71,7 +73,7 @@ const ALIEN_RESOURCE: Record<string, ResourceKind> = {
   hive_queen: "iron", // boss hits iron; core hit also drains random
 };
 
-const ATTACK_ENERGY_DRAIN = 0.08;      // energy drained per player-robot shot (was 0.22)
+const ATTACK_ENERGY_DRAIN = 1.0;       // per shot — always visible on the bar
 const CORE_HIT_RESOURCE_MIN = 3;
 const CORE_HIT_RESOURCE_MAX = 8;
 const UNIT_HIT_RESOURCE_MIN = 1;
@@ -166,9 +168,12 @@ export type BattleState = {
   boss_combo_hit_at: number;     // last successful combo time (for fx)
   boss_combo_flash_at: number;   // fx trigger
   boss_overdrive_count: number;  // how many combos landed this fight
+  // ==== Energy fx ====
+  energy_flash_at: number;       // last time an attack drained energy (for pulse fx)
+  energy_shots_fired: number;    // total player shots this battle (debug/analytics)
 };
 
-const ENERGY_REGEN_PER_SEC = 0.9;      // was 0.4 — much faster reload
+const ENERGY_REGEN_PER_SEC = 0.35;     // slow regen — energy is a scarce resource
 const ABILITY_CHARGE_PER_SEC = 1 / 30; // full in 30s
 // ==== GLOBAL DIFFICULTY BUMP (softer so the player has room to think) ====
 const GLOBAL_HP_MULT = 1.15;
@@ -290,6 +295,8 @@ export function initBattle(
     boss_combo_hit_at: -999,
     boss_combo_flash_at: -999,
     boss_overdrive_count: 0,
+    energy_flash_at: -999,
+    energy_shots_fired: 0,
   };
 }
 
@@ -731,11 +738,13 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
         // ==== Attack-drain energy for player robots ====
         if (e.side === "player") {
           if (state.energy < ATTACK_ENERGY_DRAIN) {
-            // No energy: robot misfires — apply slight cooldown and skip
-            e.atk_cooldown = 0.4;
+            // No energy: robot cannot fire — hold the shot
+            e.atk_cooldown = 0.3;
             continue;
           }
           state.energy = Math.max(0, state.energy - ATTACK_ENERGY_DRAIN);
+          state.energy_flash_at = state.time;
+          state.energy_shots_fired += 1;
         }
         if (useCore) {
           if (e.side === "player") state.alien_hp = Math.max(0, state.alien_hp - atk);
@@ -764,7 +773,18 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
             drainResource(state, primary, amt, target.lane, target.y);
           }
         }
-        e.atk_cooldown = e.atk_rate;
+        // ==== Alien burst cadence: track shots + force a long reload pause every 4 attacks ====
+        if (e.side === "alien" && e.category !== "boss") {
+          e.shots_fired = (e.shots_fired ?? 0) + 1;
+          if (e.shots_fired >= 4) {
+            e.shots_fired = 0;
+            e.atk_cooldown = e.atk_rate + 1.6; // long reload
+          } else {
+            e.atk_cooldown = e.atk_rate;
+          }
+        } else {
+          e.atk_cooldown = e.atk_rate;
+        }
       }
     }
   }

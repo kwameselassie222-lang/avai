@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert, Modal } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert, Modal, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -17,11 +17,13 @@ import {
 const LANES: Lane[] = ["left", "center", "right"];
 
 // Resource metadata (colors + icons match the "pain economy")
-const RESOURCE_META: { key: "cobalt" | "nickel" | "iron" | "gold"; label: string; color: string; icon: any }[] = [
-  { key: "cobalt", label: "COBALT", color: "#4A9EFF", icon: "diamond-stone" },
-  { key: "nickel", label: "NICKEL", color: "#B0B4C0", icon: "silverware-fork-knife" },
-  { key: "iron",   label: "IRON",   color: "#C97B4A", icon: "hammer-wrench" },
-  { key: "gold",   label: "GOLD",   color: "#FFD24A", icon: "gold" },
+// Each resource is tied to a real-world human population count they represent —
+// aliens strip these mines/refineries to feed their invasion, displacing people.
+const RESOURCE_META: { key: "cobalt" | "nickel" | "iron" | "gold"; label: string; color: string; icon: any; people_per_unit: number; site: string }[] = [
+  { key: "cobalt", label: "COBALT", color: "#4A9EFF", icon: "diamond-stone",         people_per_unit: 400, site: "Kolwezi mines" },
+  { key: "nickel", label: "NICKEL", color: "#B0B4C0", icon: "silverware-fork-knife", people_per_unit: 280, site: "Norilsk refinery" },
+  { key: "iron",   label: "IRON",   color: "#C97B4A", icon: "hammer-wrench",         people_per_unit: 520, site: "Pilbara works" },
+  { key: "gold",   label: "GOLD",   color: "#FFD24A", icon: "gold",                  people_per_unit: 340, site: "Witwatersrand reserve" },
 ];
 
 // Sound assets
@@ -55,6 +57,10 @@ export default function BattleScreen() {
   const [briefOpen, setBriefOpen] = useState(false);
   const [result, setResult] = useState<{
     victory: boolean; stars: number; parts: number; unlocked: string | null;
+    resources: Record<string, number>;
+    resources_max: Record<string, number>;
+    resource_lost: Record<string, boolean>;
+    civilian_toll: number;
   } | null>(null);
   const [starsShown, setStarsShown] = useState(0);
   const rafRef = useRef<number | null>(null);
@@ -101,7 +107,7 @@ export default function BattleScreen() {
     if (!ready) return;
     try {
       bgPlayer.loop = true;
-      bgPlayer.volume = 0.35;
+      bgPlayer.volume = 0.18;
       bgPlayer.play();
     } catch {}
     return () => {
@@ -226,6 +232,10 @@ export default function BattleScreen() {
           stars,
           parts: res.parts_awarded || 0,
           unlocked: res.unlocked_robot || null,
+          resources: { ...st.resources },
+          resources_max: { ...st.resources_max },
+          resource_lost: { ...st.resource_lost },
+          civilian_toll: st.civilian_toll,
         });
         if (st.outcome === "win" && stars > 0) {
           for (let i = 1; i <= stars; i++) {
@@ -300,6 +310,11 @@ export default function BattleScreen() {
 
       {/* Resource strip — the "pain" economy */}
       <View style={styles.resourceStrip}>
+        <View style={styles.resourceHeader}>
+          <MaterialCommunityIcons name="shield-account" size={11} color={colors.brandPrimary} />
+          <Text style={styles.resourceHeaderText}>PROTECTING EARTH RESOURCES · CIVILIANS</Text>
+        </View>
+        <View style={styles.resourceRow}>
         {RESOURCE_META.map((r) => {
           const val = state.resources[r.key];
           const max = state.resources_max[r.key];
@@ -322,6 +337,7 @@ export default function BattleScreen() {
             </View>
           );
         })}
+        </View>
       </View>
 
       {/* Battlefield with shake */}
@@ -601,6 +617,23 @@ export default function BattleScreen() {
         <View style={styles.energyRow}>
           <MaterialCommunityIcons name="lightning-bolt" size={16} color={colors.warning} />
           <Text style={styles.energyText}>{Math.floor(state.energy)}/{state.energy_max}</Text>
+          <View style={styles.energyBarWrap}>
+            {(() => {
+              const pct = (state.energy / state.energy_max) * 100;
+              const flashAge = state.time - (state.energy_flash_at || -999);
+              const flashing = flashAge >= 0 && flashAge < 0.18;
+              const low = state.energy < 3;
+              return (
+                <View style={[
+                  styles.energyBarFill,
+                  {
+                    width: `${pct}%`,
+                    backgroundColor: low ? "#FF3366" : flashing ? "#FFFFFF" : colors.warning,
+                  },
+                ]} />
+              );
+            })()}
+          </View>
           <Pressable
             onPress={triggerAbility}
             disabled={state.ability_charge < 1}
@@ -774,6 +807,7 @@ export default function BattleScreen() {
               styles.overlayCard,
               { borderColor: result.victory ? colors.brandPrimary : colors.brandSecondary },
             ]}>
+              <ScrollView contentContainerStyle={{ alignItems: "center", width: "100%" }} showsVerticalScrollIndicator={false}>
               <View style={styles.overlayHeader}>
                 <MaterialCommunityIcons
                   name={result.victory ? "trophy-variant" : "skull-crossbones"}
@@ -817,6 +851,72 @@ export default function BattleScreen() {
               ) : (
                 <Text style={styles.defeatMsg}>Earth core destroyed.{"\n"}The invasion continues.</Text>
               )}
+
+              {/* Resource breakdown — clarifies what was protected vs lost */}
+              {(() => {
+                const totalMax = RESOURCE_META.reduce((s, r) => s + result.resources_max[r.key], 0);
+                const totalSaved = RESOURCE_META.reduce((s, r) => s + result.resources[r.key], 0);
+                const totalLost = totalMax - totalSaved;
+                const protectedPeople = RESOURCE_META.reduce(
+                  (s, r) => s + result.resources[r.key] * r.people_per_unit, 0);
+                const displacedPeople = result.civilian_toll;
+                return (
+                  <View style={styles.resourceSummary}>
+                    <Text style={styles.resourceSummaryTitle}>◆ EARTH RESOURCES — POST-BATTLE</Text>
+                    {RESOURCE_META.map((r) => {
+                      const saved = result.resources[r.key];
+                      const lost = result.resources_max[r.key] - saved;
+                      const pct = Math.round((saved / result.resources_max[r.key]) * 100);
+                      const wiped = result.resource_lost[r.key];
+                      return (
+                        <View key={r.key} style={styles.resourceLine}>
+                          <MaterialCommunityIcons name={r.icon} size={13} color={r.color} />
+                          <Text style={styles.resourceLineLabel}>{r.label}</Text>
+                          <View style={styles.resourceLineBarBg}>
+                            <View style={[styles.resourceLineBarFill, {
+                              width: `${pct}%`,
+                              backgroundColor: wiped ? "#FF3366" : r.color,
+                            }]} />
+                          </View>
+                          <Text style={[styles.resourceLineSaved, { color: r.color }]}>
+                            {Math.round(saved)}
+                          </Text>
+                          <Text style={styles.resourceLineLost}>
+                            -{Math.round(lost)}
+                          </Text>
+                        </View>
+                      );
+                    })}
+                    <View style={styles.civilianRow}>
+                      <View style={styles.civilianBlock}>
+                        <MaterialCommunityIcons name="account-multiple" size={14} color={colors.success} />
+                        <View>
+                          <Text style={styles.civilianCount}>
+                            {protectedPeople.toLocaleString()}
+                          </Text>
+                          <Text style={styles.civilianLabel}>PROTECTED</Text>
+                        </View>
+                      </View>
+                      <View style={styles.civilianBlock}>
+                        <MaterialCommunityIcons name="alert-octagon" size={14} color="#FF3366" />
+                        <View>
+                          <Text style={[styles.civilianCount, { color: "#FF3366" }]}>
+                            {displacedPeople.toLocaleString()}
+                          </Text>
+                          <Text style={styles.civilianLabel}>DISPLACED</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <Text style={styles.protectFootnote}>
+                      {result.victory
+                        ? totalLost === 0
+                          ? "Perfect defense. Every mine and refinery still runs. Cities intact."
+                          : `You held. ${Math.round((totalSaved/totalMax)*100)}% of Earth's reserves saved from strip-mining.`
+                        : "The aliens broke through and are extracting resources from ruined cities."}
+                    </Text>
+                  </View>
+                );
+              })()}
 
               <View style={styles.overlayActions}>
                 <Pressable
@@ -873,6 +973,7 @@ export default function BattleScreen() {
                   </Text>
                 </Pressable>
               </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -942,7 +1043,12 @@ const styles = StyleSheet.create({
     padding: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderStrong, backgroundColor: colors.surface,
   },
   energyRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6, marginBottom: 6 },
-  energyText: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.sm, letterSpacing: 1 },
+  energyText: { fontFamily: fonts.displayBold, color: colors.warning, fontSize: fontSize.sm, letterSpacing: 1, minWidth: 44 },
+  energyBarWrap: {
+    flex: 1, height: 10, backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1, borderColor: colors.borderStrong, borderRadius: 3, overflow: "hidden",
+  },
+  energyBarFill: { height: 8 },
   abilityBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", gap: 4,
     borderWidth: 1, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.md,
@@ -969,8 +1075,9 @@ const styles = StyleSheet.create({
   },
   overlayCard: {
     width: "100%", maxWidth: 360, borderWidth: 2, borderRadius: radius.md,
-    backgroundColor: colors.surface, padding: spacing.xl, alignItems: "center",
+    backgroundColor: colors.surface, padding: spacing.lg, alignItems: "center",
     shadowColor: colors.brandPrimary, shadowOpacity: 0.4, shadowRadius: 16,
+    maxHeight: "94%",
   },
   overlayHeader: {
     alignItems: "center", marginBottom: spacing.md,
@@ -1167,10 +1274,19 @@ const styles = StyleSheet.create({
 
   // Resource strip (pain economy)
   resourceStrip: {
-    flexDirection: "row", gap: 4,
     paddingHorizontal: spacing.sm, paddingVertical: 4,
     backgroundColor: "rgba(10,15,31,0.85)",
     borderBottomWidth: 1, borderBottomColor: colors.borderStrong,
+  },
+  resourceHeader: {
+    flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3,
+  },
+  resourceHeaderText: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary,
+    fontSize: 8, letterSpacing: 1.2,
+  },
+  resourceRow: {
+    flexDirection: "row", gap: 4,
   },
   resourceCell: {
     flex: 1, flexDirection: "row", alignItems: "center", gap: 3,
@@ -1263,5 +1379,59 @@ const styles = StyleSheet.create({
   counterHint: {
     fontFamily: fonts.displayBold, color: colors.brandPrimary,
     fontSize: 7, letterSpacing: 0.5, marginTop: 1, textAlign: "center",
+  },
+
+  // Post-battle resource breakdown
+  resourceSummary: {
+    width: "100%",
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.md,
+    marginTop: spacing.sm, marginBottom: spacing.sm,
+    backgroundColor: "rgba(0,229,255,0.04)",
+  },
+  resourceSummaryTitle: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary,
+    fontSize: 10, letterSpacing: 1.5, marginBottom: 6,
+  },
+  resourceLine: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingVertical: 3,
+  },
+  resourceLineLabel: {
+    fontFamily: fonts.displayBold, color: colors.onSurface,
+    fontSize: 10, letterSpacing: 1, width: 46,
+  },
+  resourceLineBarBg: {
+    flex: 1, height: 6, backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 2, overflow: "hidden",
+  },
+  resourceLineBarFill: { height: 6 },
+  resourceLineSaved: {
+    fontFamily: fonts.displayBold, fontSize: 10, letterSpacing: 0.5, minWidth: 26, textAlign: "right",
+  },
+  resourceLineLost: {
+    fontFamily: fonts.displayBold, fontSize: 9, letterSpacing: 0.5,
+    color: "#FF3366", minWidth: 30, textAlign: "right",
+  },
+  civilianRow: {
+    flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm,
+  },
+  civilianBlock: {
+    flex: 1, flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderColor: colors.border,
+    paddingVertical: 6, paddingHorizontal: spacing.sm, borderRadius: 4,
+    backgroundColor: colors.surfaceSecondary,
+  },
+  civilianCount: {
+    fontFamily: fonts.displayBold, color: colors.success,
+    fontSize: fontSize.base, letterSpacing: 1,
+  },
+  civilianLabel: {
+    fontFamily: fonts.displayBold, color: colors.onSurfaceTertiary,
+    fontSize: 8, letterSpacing: 1.5,
+  },
+  protectFootnote: {
+    fontFamily: fonts.body, color: colors.onSurfaceSecondary,
+    fontSize: 11, lineHeight: 15, marginTop: spacing.sm,
+    fontStyle: "italic", textAlign: "center",
   },
 });
