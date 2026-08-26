@@ -730,41 +730,39 @@ export default function BattleScreen() {
         </View>
       </View>
 
-      {/* Pause overlay */}
+      {/* Pause overlay — inline absolute positioned (no Modal wrapper for reliability) */}
       {pausedUi && !briefOpen && !result && (
-        <Modal transparent animationType="fade" visible>
-          <View style={styles.overlay}>
-            <View style={[styles.overlayCard, { borderColor: colors.brandPrimary, maxWidth: 320 }]}>
-              <MaterialCommunityIcons name="pause-circle-outline" size={56} color={colors.brandPrimary} />
-              <Text style={[styles.overlayTitle, { color: colors.brandPrimary, fontSize: fontSize.xxl, letterSpacing: 6, marginTop: spacing.sm }]}>
-                PAUSED
-              </Text>
-              <View style={{ width: "100%", gap: spacing.md, marginTop: spacing.lg }}>
-                <Pressable
-                  onPress={() => { paused.current = false; setPausedUi(false); }}
-                  style={[styles.actionBtn, { borderColor: colors.brandPrimary, backgroundColor: "rgba(0,229,255,0.15)", paddingVertical: spacing.md }]}
-                  testID="btn-resume"
-                >
-                  <MaterialCommunityIcons name="play" size={20} color={colors.brandPrimary} />
-                  <Text style={[styles.actionText, { color: colors.brandPrimary, fontSize: fontSize.base }]}>RESUME</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => {
-                    setPausedUi(false);
-                    setReady(false);
-                    setRestartNonce((n) => n + 1);
-                    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {}
-                  }}
-                  style={[styles.actionBtn, { borderColor: colors.brandSecondary, backgroundColor: "rgba(255,51,102,0.10)", paddingVertical: spacing.md }]}
-                  testID="btn-restart"
-                >
-                  <MaterialCommunityIcons name="restart" size={20} color={colors.brandSecondary} />
-                  <Text style={[styles.actionText, { color: colors.brandSecondary, fontSize: fontSize.base }]}>START OVER</Text>
-                </Pressable>
-              </View>
+        <View style={styles.pauseOverlay} pointerEvents="auto" testID="pause-overlay">
+          <View style={[styles.overlayCard, { borderColor: colors.brandPrimary, maxWidth: 320 }]}>
+            <MaterialCommunityIcons name="pause-circle-outline" size={56} color={colors.brandPrimary} />
+            <Text style={[styles.overlayTitle, { color: colors.brandPrimary, fontSize: fontSize.xxl, letterSpacing: 6, marginTop: spacing.sm }]}>
+              PAUSED
+            </Text>
+            <View style={{ width: "100%", gap: spacing.md, marginTop: spacing.lg }}>
+              <Pressable
+                onPress={() => { paused.current = false; setPausedUi(false); }}
+                style={[styles.actionBtn, { borderColor: colors.brandPrimary, backgroundColor: "rgba(0,229,255,0.15)", paddingVertical: spacing.md }]}
+                testID="btn-resume"
+              >
+                <MaterialCommunityIcons name="play" size={20} color={colors.brandPrimary} />
+                <Text style={[styles.actionText, { color: colors.brandPrimary, fontSize: fontSize.base }]}>RESUME</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setPausedUi(false);
+                  setReady(false);
+                  setRestartNonce((n) => n + 1);
+                  try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {}
+                }}
+                style={[styles.actionBtn, { borderColor: colors.brandSecondary, backgroundColor: "rgba(255,51,102,0.10)", paddingVertical: spacing.md }]}
+                testID="btn-restart"
+              >
+                <MaterialCommunityIcons name="restart" size={20} color={colors.brandSecondary} />
+                <Text style={[styles.actionText, { color: colors.brandSecondary, fontSize: fontSize.base }]}>START OVER</Text>
+              </Pressable>
             </View>
           </View>
-        </Modal>
+        </View>
       )}
 
       {/* Tactical Briefing modal — puzzle-style level breakdown */}
@@ -1451,6 +1449,12 @@ const styles = StyleSheet.create({
   pauseBtnText: {
     fontFamily: fonts.displayBold, color: colors.brandPrimary,
     fontSize: 10, letterSpacing: 1.5,
+  },
+  pauseOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.82)",
+    alignItems: "center", justifyContent: "center",
+    padding: spacing.lg, zIndex: 9999, elevation: 9999,
   },
 
   // Deploy card additions
