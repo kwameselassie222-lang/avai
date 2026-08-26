@@ -73,12 +73,16 @@ const ALIEN_RESOURCE: Record<string, ResourceKind> = {
   hive_queen: "iron", // boss hits iron; core hit also drains random
 };
 
-const ATTACK_ENERGY_DRAIN = 0.15;      // light tax so multi-robot deploys are still tactical
+const ATTACK_ENERGY_DRAIN = 0.08;      // very light tax so you can sustain fire
 // ==== EARTH STAMINA (green bar): boxing-match model ====
 // Every player attack costs a tiny bit of core stamina, every alien hit costs more,
 // and stamina slowly regenerates between exchanges.
 const EARTH_ATTACK_TAX = 1.5;          // HP cost per player robot shot
 const EARTH_REGEN_PER_SEC = 0.9;       // slow between-round recovery
+// ==== ALIEN STAMINA (red bar): symmetric boxing model ====
+// Aliens also get tired when they punch — the red bar drains a bit per alien shot.
+const ALIEN_ATTACK_TAX = 4.0;          // HP cost per alien shot (heavier — aliens fight harder)
+const ALIEN_REGEN_PER_SEC = 0.6;       // very slow enemy recovery
 const CORE_HIT_RESOURCE_MIN = 3;
 const CORE_HIT_RESOURCE_MAX = 8;
 const UNIT_HIT_RESOURCE_MIN = 1;
@@ -177,10 +181,12 @@ export type BattleState = {
   energy_flash_at: number;       // last time an attack drained energy (for pulse fx)
   energy_shots_fired: number;    // total player shots this battle (debug/analytics)
   // ==== Earth stamina fx ====
-  earth_hp_flash_at: number;     // pulse when green bar drains (either from attack or being hit)
+  earth_hp_flash_at: number;     // pulse when green bar drains
+  // ==== Alien stamina fx ====
+  alien_hp_flash_at: number;     // pulse when red bar drains
 };
 
-const ENERGY_REGEN_PER_SEC = 0.75;     // fast enough to keep up with combat pace
+const ENERGY_REGEN_PER_SEC = 1.5;      // fast enough to sustain multiple firing robots
 const ABILITY_CHARGE_PER_SEC = 1 / 30; // full in 30s
 // ==== GLOBAL DIFFICULTY BUMP (softer so the player has room to think) ====
 const GLOBAL_HP_MULT = 1.15;
@@ -305,6 +311,7 @@ export function initBattle(
     energy_flash_at: -999,
     energy_shots_fired: 0,
     earth_hp_flash_at: -999,
+    alien_hp_flash_at: -999,
   };
 }
 
@@ -571,6 +578,8 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
   state.energy = Math.min(state.energy_max, state.energy + ENERGY_REGEN_PER_SEC * dt);
   // Earth stamina slowly recovers between exchanges (boxing-match model)
   state.earth_hp = Math.min(state.earth_max_hp, state.earth_hp + EARTH_REGEN_PER_SEC * dt);
+  // Alien stamina also slowly recovers (they get a break too, but slower)
+  state.alien_hp = Math.min(state.alien_max_hp, state.alien_hp + ALIEN_REGEN_PER_SEC * dt);
   state.ability_charge = Math.min(1, state.ability_charge + ABILITY_CHARGE_PER_SEC * dt);
   state.screen_shake = Math.max(0, state.screen_shake - dt * 2.0);
 
@@ -758,9 +767,16 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
           // ==== BOXING MODEL: every player attack also costs a tiny bit of core stamina ====
           state.earth_hp = Math.max(0, state.earth_hp - EARTH_ATTACK_TAX);
           state.earth_hp_flash_at = state.time;
+        } else if (e.side === "alien") {
+          // ==== BOXING MODEL: every alien attack also costs a bit of their core stamina ====
+          state.alien_hp = Math.max(0, state.alien_hp - ALIEN_ATTACK_TAX);
+          state.alien_hp_flash_at = state.time;
         }
         if (useCore) {
-          if (e.side === "player") state.alien_hp = Math.max(0, state.alien_hp - atk);
+          if (e.side === "player") {
+            state.alien_hp = Math.max(0, state.alien_hp - atk);
+            state.alien_hp_flash_at = state.time;
+          }
           else {
             // Alien hits Earth core: drain HP + drain a random resource + flash bar
             state.earth_hp = Math.max(0, state.earth_hp - atk);

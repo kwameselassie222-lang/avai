@@ -670,3 +670,26 @@ Reverted the aggressive tuning from Iteration 18:
 
 ### Result
 Verified in-app (screenshot on L1): after several player attacks, Earth Stamina at 489/500, energy at 12/12. Playing 45 seconds of L5 defeat: green bar visibly drains from both attacking and getting hit while energy stays comfortable.
+
+## Iteration 20 (Pause + Alien Stamina + Energy Retune) — 2026-06
+
+### Pause System
+- New PAUSE button in top HUD (cyan icon between the alien-core bar and tip button).
+- Toggles `paused.current` — game loop skips ticks while paused.
+- Pause overlay shows four buttons:
+  1. **▶ RESUME** — continue current battle
+  2. **💡 TACTICAL BRIEF** — re-open the mission puzzle screen
+  3. **🔄 START OVER** — restart the level from scratch (new nonce triggers full re-init, resources reset, stamina refills)
+  4. **🚪 ABANDON** — exit back to the map
+
+### Alien Stamina (symmetric boxing model)
+- Aliens now pay for their attacks too — the red ALIEN CORE bar drains `ALIEN_ATTACK_TAX = 4.0` HP per alien shot.
+- Slow enemy regen `ALIEN_REGEN_PER_SEC = 0.6` between exchanges.
+- Bar pulses white on drain (either from player hits or their own shots).
+- Now shows numeric readout: **ALIEN CORE · 587/900**.
+
+### Energy Bar Un-throttled Further
+Second retune based on user feedback that they couldn't keep up with alien attacks:
+- **ENERGY_REGEN_PER_SEC**: 0.75 → **1.5/sec** (2× faster)
+- **ATTACK_ENERGY_DRAIN**: 0.15 → **0.08** per shot
+- Net: even 4 robots firing simultaneously (~4/sec drain) is barely below regen (1.5). Bar recovers quickly between rounds so deploying is unrestricted.

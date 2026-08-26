@@ -55,6 +55,8 @@ export default function BattleScreen() {
   const [rewardShown, setRewardShown] = useState(false);
   const [brief, setBrief] = useState<LevelBrief | null>(null);
   const [briefOpen, setBriefOpen] = useState(false);
+  const [pausedUi, setPausedUi] = useState(false);
+  const [restartNonce, setRestartNonce] = useState(0);
   const [result, setResult] = useState<{
     victory: boolean; stars: number; parts: number; unlocked: string | null;
     resources: Record<string, number>;
@@ -163,13 +165,16 @@ export default function BattleScreen() {
       setBrief(b);
       setBriefOpen(true);
       paused.current = true;
+      setPausedUi(false);
+      setResult(null);
+      setRewardShown(false);
       setReady(true);
     })();
     return () => {
       cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [levelId, difficulty]);
+  }, [levelId, difficulty, restartNonce]);
 
   // Game loop — single stable RAF driven only by level/ready. Reads/writes stateRef.
   useEffect(() => {
@@ -290,7 +295,7 @@ export default function BattleScreen() {
         </Pressable>
         <View style={styles.hpWrap}>
           <View style={styles.hpLabelRow}>
-            <Text style={styles.hpLabel}>ALIEN CORE</Text>
+            <Text style={styles.hpLabel}>ALIEN CORE · {Math.round(state.alien_hp)}/{state.alien_max_hp}</Text>
             {difficulty === "veteran" && (
               <View style={styles.vetBadge}>
                 <MaterialCommunityIcons name="skull" size={9} color="#FF3366" />
@@ -298,10 +303,31 @@ export default function BattleScreen() {
               </View>
             )}
           </View>
-          <View style={styles.hpBar}>
-            <View style={[styles.hpFill, { width: `${(state.alien_hp / state.alien_max_hp) * 100}%`, backgroundColor: colors.brandSecondary }]} />
-          </View>
+          {(() => {
+            const pct = (state.alien_hp / state.alien_max_hp) * 100;
+            const flashAge = state.time - (state.alien_hp_flash_at || -999);
+            const flashing = flashAge >= 0 && flashAge < 0.18;
+            return (
+              <View style={styles.hpBar}>
+                <View style={[styles.hpFill, {
+                  width: `${pct}%`,
+                  backgroundColor: flashing ? "#FFFFFF" : colors.brandSecondary,
+                }]} />
+              </View>
+            );
+          })()}
         </View>
+        <Pressable
+          onPress={() => {
+            paused.current = !paused.current;
+            setPausedUi(paused.current);
+            try { Haptics.selectionAsync().catch(() => {}); } catch {}
+          }}
+          style={styles.pauseBtn}
+          testID="btn-pause"
+        >
+          <MaterialCommunityIcons name={pausedUi ? "play" : "pause"} size={16} color={colors.brandPrimary} />
+        </Pressable>
         <Pressable onPress={() => { paused.current = true; setBriefOpen(true); }} style={styles.tipBtn} testID="btn-tactical-brief">
           <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={colors.warning} />
         </Pressable>
@@ -702,6 +728,61 @@ export default function BattleScreen() {
           })}
         </View>
       </View>
+
+      {/* Pause overlay */}
+      {pausedUi && !briefOpen && !result && (
+        <Modal transparent animationType="fade" visible>
+          <View style={styles.overlay}>
+            <View style={[styles.overlayCard, { borderColor: colors.brandPrimary, maxWidth: 320 }]}>
+              <MaterialCommunityIcons name="pause-circle-outline" size={48} color={colors.brandPrimary} />
+              <Text style={[styles.overlayTitle, { color: colors.brandPrimary, fontSize: fontSize.xxl, letterSpacing: 6, marginTop: spacing.sm }]}>
+                PAUSED
+              </Text>
+              <Text style={[styles.overlaySub, { marginBottom: spacing.md }]}>Battle temporarily halted.</Text>
+              <View style={{ width: "100%", gap: spacing.sm }}>
+                <Pressable
+                  onPress={() => { paused.current = false; setPausedUi(false); }}
+                  style={[styles.actionBtn, { borderColor: colors.brandPrimary, backgroundColor: "rgba(0,229,255,0.15)" }]}
+                  testID="btn-resume"
+                >
+                  <MaterialCommunityIcons name="play" size={16} color={colors.brandPrimary} />
+                  <Text style={[styles.actionText, { color: colors.brandPrimary }]}>RESUME</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => { paused.current = true; setPausedUi(false); setBriefOpen(true); }}
+                  style={[styles.actionBtn, { borderColor: colors.warning }]}
+                  testID="btn-view-brief"
+                >
+                  <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={colors.warning} />
+                  <Text style={[styles.actionText, { color: colors.warning }]}>TACTICAL BRIEF</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    // Restart: bump the nonce, useEffect re-inits from scratch
+                    setPausedUi(false);
+                    setReady(false);
+                    setRestartNonce((n) => n + 1);
+                    try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {}
+                  }}
+                  style={[styles.actionBtn, { borderColor: colors.brandSecondary, backgroundColor: "rgba(255,51,102,0.10)" }]}
+                  testID="btn-restart"
+                >
+                  <MaterialCommunityIcons name="restart" size={16} color={colors.brandSecondary} />
+                  <Text style={[styles.actionText, { color: colors.brandSecondary }]}>START OVER</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => { paused.current = false; router.back(); }}
+                  style={[styles.actionBtn, { borderColor: colors.borderStrong }]}
+                  testID="btn-abandon"
+                >
+                  <MaterialCommunityIcons name="exit-run" size={16} color={colors.onSurfaceSecondary} />
+                  <Text style={[styles.actionText, { color: colors.onSurfaceSecondary }]}>ABANDON</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
 
       {/* Tactical Briefing modal — puzzle-style level breakdown */}
       {brief && briefOpen && (
@@ -1377,6 +1458,10 @@ const styles = StyleSheet.create({
   tipBtn: {
     padding: 6, borderWidth: 1, borderColor: colors.warning, borderRadius: 4,
     backgroundColor: "rgba(255,176,32,0.12)",
+  },
+  pauseBtn: {
+    padding: 6, borderWidth: 1, borderColor: colors.brandPrimary, borderRadius: 4,
+    backgroundColor: "rgba(0,229,255,0.12)",
   },
 
   // Deploy card additions
