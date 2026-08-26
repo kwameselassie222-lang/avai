@@ -326,7 +326,8 @@ export default function BattleScreen() {
           style={styles.pauseBtn}
           testID="btn-pause"
         >
-          <MaterialCommunityIcons name={pausedUi ? "play" : "pause"} size={16} color={colors.brandPrimary} />
+          <MaterialCommunityIcons name={pausedUi ? "play" : "pause"} size={18} color={colors.brandPrimary} />
+          <Text style={styles.pauseBtnText}>{pausedUi ? "PLAY" : "PAUSE"}</Text>
         </Pressable>
         <Pressable onPress={() => { paused.current = true; setBriefOpen(true); }} style={styles.tipBtn} testID="btn-tactical-brief">
           <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={colors.warning} />
@@ -1460,8 +1461,14 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,176,32,0.12)",
   },
   pauseBtn: {
-    padding: 6, borderWidth: 1, borderColor: colors.brandPrimary, borderRadius: 4,
-    backgroundColor: "rgba(0,229,255,0.12)",
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingVertical: 6, paddingHorizontal: 8,
+    borderWidth: 1, borderColor: colors.brandPrimary, borderRadius: 4,
+    backgroundColor: "rgba(0,229,255,0.14)",
+  },
+  pauseBtnText: {
+    fontFamily: fonts.displayBold, color: colors.brandPrimary,
+    fontSize: 10, letterSpacing: 1.5,
   },
 
   // Deploy card additions

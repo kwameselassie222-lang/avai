@@ -73,15 +73,15 @@ const ALIEN_RESOURCE: Record<string, ResourceKind> = {
   hive_queen: "iron", // boss hits iron; core hit also drains random
 };
 
-const ATTACK_ENERGY_DRAIN = 0.08;      // very light tax so you can sustain fire
+// (Attacks no longer cost energy — only deploys do. Retained constants for stamina taxes.)
 // ==== EARTH STAMINA (green bar): boxing-match model ====
-// Every player attack costs a tiny bit of core stamina, every alien hit costs more,
-// and stamina slowly regenerates between exchanges.
-const EARTH_ATTACK_TAX = 1.5;          // HP cost per player robot shot
+// Every player attack costs stamina (the green bar).
+// Deploying costs ENERGY (yellow bar). Attacking costs STAMINA (green bar).
+const EARTH_ATTACK_TAX = 1.5;          // stamina cost per player robot shot
 const EARTH_REGEN_PER_SEC = 0.9;       // slow between-round recovery
 // ==== ALIEN STAMINA (red bar): symmetric boxing model ====
 // Aliens also get tired when they punch — the red bar drains a bit per alien shot.
-const ALIEN_ATTACK_TAX = 4.0;          // HP cost per alien shot (heavier — aliens fight harder)
+const ALIEN_ATTACK_TAX = 4.0;          // stamina cost per alien shot (heavier — aliens fight harder)
 const ALIEN_REGEN_PER_SEC = 0.6;       // very slow enemy recovery
 const CORE_HIT_RESOURCE_MIN = 3;
 const CORE_HIT_RESOURCE_MAX = 8;
@@ -756,17 +756,10 @@ export function tick(state: BattleState, level: V2Level, dt: number): BattleStat
         const atk = e.atk * (1 + (e.side === "player" ? boost : 0));
         // ==== Attack-drain energy for player robots ====
         if (e.side === "player") {
-          if (state.energy < ATTACK_ENERGY_DRAIN) {
-            // No energy: robot cannot fire — hold the shot
-            e.atk_cooldown = 0.3;
-            continue;
-          }
-          state.energy = Math.max(0, state.energy - ATTACK_ENERGY_DRAIN);
-          state.energy_flash_at = state.time;
-          state.energy_shots_fired += 1;
-          // ==== BOXING MODEL: every player attack also costs a tiny bit of core stamina ====
+          // Attacks no longer cost energy — only the green STAMINA bar taxes on fire
           state.earth_hp = Math.max(0, state.earth_hp - EARTH_ATTACK_TAX);
           state.earth_hp_flash_at = state.time;
+          state.energy_shots_fired += 1;
         } else if (e.side === "alien") {
           // ==== BOXING MODEL: every alien attack also costs a bit of their core stamina ====
           state.alien_hp = Math.max(0, state.alien_hp - ALIEN_ATTACK_TAX);

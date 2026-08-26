@@ -693,3 +693,16 @@ Second retune based on user feedback that they couldn't keep up with alien attac
 - **ENERGY_REGEN_PER_SEC**: 0.75 → **1.5/sec** (2× faster)
 - **ATTACK_ENERGY_DRAIN**: 0.15 → **0.08** per shot
 - Net: even 4 robots firing simultaneously (~4/sec drain) is barely below regen (1.5). Bar recovers quickly between rounds so deploying is unrestricted.
+
+## Iteration 21 (Energy/Stamina Cleanup + Pause Button Label) — 2026-06
+
+### Bar Responsibilities (crystal clear now)
+- **YELLOW (Energy)**: only spent on **deploys**. Attacks do NOT drain it anymore.
+- **GREEN (Earth Stamina)**: drained on **player attacks** (1.5 HP/shot) AND on alien hits (dmg + resource drain). Regens 0.9 HP/sec between exchanges.
+- **RED (Alien Stamina)**: drained on **alien attacks** (4.0 HP/shot) AND on player hits (full atk dmg). Regens 0.6 HP/sec.
+
+### Pause Button Made Obvious
+- Added visible "PAUSE" text label next to the pause icon.
+- Larger cyan button in the top HUD.
+- Toggles to "PLAY" when paused, so state is instantly recognizable.
+- Verified pause overlay renders all 4 buttons: RESUME · TACTICAL BRIEF · START OVER · ABANDON.
