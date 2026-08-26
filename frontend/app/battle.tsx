@@ -735,49 +735,31 @@ export default function BattleScreen() {
         <Modal transparent animationType="fade" visible>
           <View style={styles.overlay}>
             <View style={[styles.overlayCard, { borderColor: colors.brandPrimary, maxWidth: 320 }]}>
-              <MaterialCommunityIcons name="pause-circle-outline" size={48} color={colors.brandPrimary} />
+              <MaterialCommunityIcons name="pause-circle-outline" size={56} color={colors.brandPrimary} />
               <Text style={[styles.overlayTitle, { color: colors.brandPrimary, fontSize: fontSize.xxl, letterSpacing: 6, marginTop: spacing.sm }]}>
                 PAUSED
               </Text>
-              <Text style={[styles.overlaySub, { marginBottom: spacing.md }]}>Battle temporarily halted.</Text>
-              <View style={{ width: "100%", gap: spacing.sm }}>
+              <View style={{ width: "100%", gap: spacing.md, marginTop: spacing.lg }}>
                 <Pressable
                   onPress={() => { paused.current = false; setPausedUi(false); }}
-                  style={[styles.actionBtn, { borderColor: colors.brandPrimary, backgroundColor: "rgba(0,229,255,0.15)" }]}
+                  style={[styles.actionBtn, { borderColor: colors.brandPrimary, backgroundColor: "rgba(0,229,255,0.15)", paddingVertical: spacing.md }]}
                   testID="btn-resume"
                 >
-                  <MaterialCommunityIcons name="play" size={16} color={colors.brandPrimary} />
-                  <Text style={[styles.actionText, { color: colors.brandPrimary }]}>RESUME</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => { paused.current = true; setPausedUi(false); setBriefOpen(true); }}
-                  style={[styles.actionBtn, { borderColor: colors.warning }]}
-                  testID="btn-view-brief"
-                >
-                  <MaterialCommunityIcons name="lightbulb-on-outline" size={16} color={colors.warning} />
-                  <Text style={[styles.actionText, { color: colors.warning }]}>TACTICAL BRIEF</Text>
+                  <MaterialCommunityIcons name="play" size={20} color={colors.brandPrimary} />
+                  <Text style={[styles.actionText, { color: colors.brandPrimary, fontSize: fontSize.base }]}>RESUME</Text>
                 </Pressable>
                 <Pressable
                   onPress={() => {
-                    // Restart: bump the nonce, useEffect re-inits from scratch
                     setPausedUi(false);
                     setReady(false);
                     setRestartNonce((n) => n + 1);
                     try { Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {}); } catch {}
                   }}
-                  style={[styles.actionBtn, { borderColor: colors.brandSecondary, backgroundColor: "rgba(255,51,102,0.10)" }]}
+                  style={[styles.actionBtn, { borderColor: colors.brandSecondary, backgroundColor: "rgba(255,51,102,0.10)", paddingVertical: spacing.md }]}
                   testID="btn-restart"
                 >
-                  <MaterialCommunityIcons name="restart" size={16} color={colors.brandSecondary} />
-                  <Text style={[styles.actionText, { color: colors.brandSecondary }]}>START OVER</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => { paused.current = false; router.back(); }}
-                  style={[styles.actionBtn, { borderColor: colors.borderStrong }]}
-                  testID="btn-abandon"
-                >
-                  <MaterialCommunityIcons name="exit-run" size={16} color={colors.onSurfaceSecondary} />
-                  <Text style={[styles.actionText, { color: colors.onSurfaceSecondary }]}>ABANDON</Text>
+                  <MaterialCommunityIcons name="restart" size={20} color={colors.brandSecondary} />
+                  <Text style={[styles.actionText, { color: colors.brandSecondary, fontSize: fontSize.base }]}>START OVER</Text>
                 </Pressable>
               </View>
             </View>
